@@ -107,8 +107,9 @@ services:
       # Gantry Configuration
       - GANTRY_PORT=5000
       - GANTRY_ENV=production
-      # Auth Configuration
-      - GANTRY_PASSWORD_HASH=${GANTRY_PASSWORD_HASH}
+      # Auth Configuration (use GANTRY_PASSWORD for plain text, auto-hashed)
+      - GANTRY_PASSWORD=${GANTRY_PASSWORD:-}
+      - GANTRY_PASSWORD_HASH=${GANTRY_PASSWORD_HASH:-}
       - SECRET_KEY=${SECRET_KEY:-gantry-fleet-secret-key-change-me}
     volumes:
       # Mission artifacts (flight recordings, manifests, audit reports)

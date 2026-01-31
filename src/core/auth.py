@@ -22,12 +22,48 @@ console = Console()
 # -----------------------------------------------------------------------------
 # CONFIGURATION
 # -----------------------------------------------------------------------------
-# Password hash (SHA256) - set via GANTRY_PASSWORD_HASH env var
-# To generate: echo -n "your_password" | shasum -a 256
-DEFAULT_PASSWORD_HASH = os.getenv(
-    "GANTRY_PASSWORD_HASH",
-    "5e884898da28047d9d6679a3c0f28a3a20dd8b9f61b98b5ea2f8a0f3b54dd68c",  # "password"
-)
+# Password can be set via:
+# - GANTRY_PASSWORD (plain text - will be hashed internally)
+# - GANTRY_PASSWORD_HASH (pre-hashed SHA256)
+# Plain text is automatically detected and hashed for convenience.
+
+
+def _get_password_hash() -> str:
+    """
+    Get the password hash from environment.
+    Supports both plain text and pre-hashed passwords.
+    """
+    # First check for pre-hashed password
+    password_hash = os.getenv("GANTRY_PASSWORD_HASH", "")
+
+    # If it looks like a valid SHA256 hash (64 hex chars), use it directly
+    if password_hash and len(password_hash) == 64:
+        try:
+            int(password_hash, 16)  # Verify it's hex
+            return password_hash
+        except ValueError:
+            pass
+
+    # Check for plain text password
+    plain_password = os.getenv("GANTRY_PASSWORD", "")
+    if plain_password:
+        # Hash the plain text password
+        hashed = hashlib.sha256(plain_password.encode()).hexdigest()
+        console.print("[cyan][AUTH] Password loaded from GANTRY_PASSWORD[/cyan]")
+        return hashed
+
+    # If GANTRY_PASSWORD_HASH was set but not valid hex, treat as plain text
+    if password_hash:
+        hashed = hashlib.sha256(password_hash.encode()).hexdigest()
+        console.print("[cyan][AUTH] Password loaded (converted to hash)[/cyan]")
+        return hashed
+
+    # Default password (for development only)
+    console.print("[yellow][AUTH] Using default password - set GANTRY_PASSWORD in production[/yellow]")
+    return hashlib.sha256(b"password").hexdigest()
+
+
+DEFAULT_PASSWORD_HASH = _get_password_hash()
 
 # Rate limit settings
 RATE_LIMIT_WINDOW = 60  # seconds
