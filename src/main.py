@@ -165,7 +165,7 @@ def print_banner() -> None:
 
     ╔═══════════════════════════════════════════════════╗
     ║           GANTRY FLEET ONLINE                     ║
-    ║  • AI-Powered Software Factory                    ║
+    ║  • AI-Powered Software Studio                     ║
     ║  • Voice & Chat Interface                         ║
     ║  • Zero-Trust Build Pipeline                      ║
     ╚═══════════════════════════════════════════════════╝

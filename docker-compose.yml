@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # GANTRY FLEET INFRASTRUCTURE
 # -----------------------------------------------------------------------------
-# A secure, 4-service architecture for the voice-activated software factory:
+# A secure, 4-service architecture for the AI-powered software studio:
 #
 # 1. docker-proxy: Restricts Docker socket access (least privilege)
 # 2. gantry_db: PostgreSQL database for mission persistence
