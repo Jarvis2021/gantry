@@ -1,5 +1,0 @@
-{
-  "timestamp": "2026-01-31T17:09:41.453279",
-  "verdict": "PASS",
-  "output": "\nup to date, audited 69 packages in 308ms\n\n15 packages are looking for funding\n  run `npm fund` for details\n\nfound 0 vulnerabilities\n\n> gantry-landing-page@1.0.0 test\n> echo \"No tests specified\" && exit 0\n\nNo tests specified\n"
-}

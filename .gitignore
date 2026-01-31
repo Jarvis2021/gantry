@@ -44,3 +44,9 @@ build/
 # Logs
 *.log
 logs/
+
+# -----------------------------------------------------------------------------
+# GANTRY BUILD ARTIFACTS (Do NOT commit - these are ephemeral)
+# -----------------------------------------------------------------------------
+missions/
+!missions/.gitkeep

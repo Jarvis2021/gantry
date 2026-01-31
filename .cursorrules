@@ -119,7 +119,47 @@
   Gantry is your Staff Engineer; YOU remain the Lead.
 
 # -----------------------------------------------------------------------------
-# 10. DEFINITION OF DONE (STRICT ENFORCEMENT)
+# 10. CODE QUALITY CRITIC LAYER (STRICT ENFORCEMENT)
+# -----------------------------------------------------------------------------
+# Before writing or modifying ANY code, apply these quality gates:
+#
+- **DRY (Don't Repeat Yourself)**:
+  - NEVER duplicate code. Extract common logic into functions/classes.
+  - If you see similar code blocks, REFACTOR immediately.
+  - Use helper functions, base classes, and composition.
+- **TIME COMPLEXITY**:
+  - Always consider Big-O complexity.
+  - Avoid O(n²) when O(n) is possible. Document complexity in comments.
+  - Use appropriate data structures (dict for O(1) lookup, not list).
+- **STRICT LINTING**:
+  - Run `read_lints` BEFORE declaring any code complete.
+  - Zero linting errors allowed. Fix all warnings.
+  - Follow PEP 8 for Python, ESLint rules for JS/TS.
+- **PYDANTIC MODELS**:
+  - ALL data structures must use Pydantic models.
+  - No raw dicts for structured data. Define proper schemas.
+  - Use validators for complex fields.
+- **SYSTEM DESIGN PRINCIPLES**:
+  - Single Responsibility: Each class/function does ONE thing.
+  - Open/Closed: Open for extension, closed for modification.
+  - Dependency Injection: Pass dependencies, don't hardcode.
+  - Separation of Concerns: Keep layers distinct (API, Core, Infra).
+- **ARCHITECTURE PATTERNS**:
+  - Follow existing patterns in codebase. Don't introduce new ones without reason.
+  - Use the established folder structure: `src/core/`, `src/infra/`, `src/domain/`.
+  - Interfaces before implementations.
+- **NO CODE BLOAT**:
+  - Every line must have a purpose. Delete dead code.
+  - Prefer composition over inheritance.
+  - Keep functions under 50 lines. Split if longer.
+  - Maximum 3 levels of nesting. Flatten with early returns.
+- **ERROR HANDLING**:
+  - Never swallow exceptions. Log them at minimum.
+  - Use specific exception types, not bare `except:`.
+  - Fail fast with clear error messages.
+
+# -----------------------------------------------------------------------------
+# 11. DEFINITION OF DONE (STRICT ENFORCEMENT)
 # -----------------------------------------------------------------------------
 # A task is NOT complete until ALL of the following are verified:
 #

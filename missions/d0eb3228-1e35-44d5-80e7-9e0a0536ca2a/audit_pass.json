@@ -1,5 +1,0 @@
-{
-  "timestamp": "2026-01-31T17:07:35.185325",
-  "verdict": "PASS",
-  "output": "\nup to date, audited 1 package in 83ms\n\nfound 0 vulnerabilities\n\n> node-hello-world@1.0.0 test\n> node server.js & pid=$!; sleep 1; curl -s http://localhost:3000; kill $pid\n\nServer running at http://localhost:3000/\nHello, World!"
-}

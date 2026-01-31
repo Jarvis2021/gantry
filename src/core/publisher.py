@@ -170,21 +170,25 @@ class Publisher:
         self, 
         manifest: GantryManifest, 
         evidence_path: str,
-        repo_name: Optional[str] = None
+        repo_name: Optional[str] = None,
+        mission_id: Optional[str] = None
     ) -> str:
         """
-        Publish a successfully audited mission to GitHub.
+        Publish a successfully audited mission via Pull Request.
         
         THE GATE: This method enforces the Green-Only rule.
         Failed audits are BLOCKED from publishing.
+        
+        JUNIOR DEV MODEL: Never pushes to main. Always opens a PR.
         
         Args:
             manifest: The build manifest
             evidence_path: Path to mission evidence folder (string)
             repo_name: Optional repository name (defaults to project_name)
+            mission_id: Optional mission ID for branch naming
             
         Returns:
-            The GitHub repository URL
+            The Pull Request URL (not repo URL!)
             
         Raises:
             SecurityBlock: If audit did not pass (Green-Only violation)
@@ -213,27 +217,30 @@ class Publisher:
         
         # Determine repository name
         target_repo = repo_name or manifest.project_name
-        # Sanitize repo name (GitHub requirements)
         target_repo = self._sanitize_repo_name(target_repo)
         
-        # AUTO-CREATE REPOSITORY via GitHub API
+        # Generate unique feature branch name
+        short_id = (mission_id or str(uuid.uuid4()))[:8]
+        feature_branch = f"feat/{self._sanitize_repo_name(manifest.project_name)}-{short_id}"
+        
+        console.print(f"[cyan][PUBLISHER] Feature branch: {feature_branch}[/cyan]")
+        
+        # AUTO-CREATE REPOSITORY via GitHub API (with main branch initialized)
         try:
             create_github_repo(
                 token=self._token,
                 repo_name=target_repo,
-                private=False  # Public by default
+                private=False
             )
         except RepoCreationError as e:
-            console.print(f"[yellow][PUBLISHER] Repo creation note: {e}[/yellow]")
-            # Continue anyway - repo might already exist
+            console.print(f"[yellow][PUBLISHER] Repo note: {e}[/yellow]")
+            # Continue - repo might already exist
         
-        # Initialize Git and push
+        # Initialize Git, commit to feature branch, and push
         try:
             git = GitProvider(str(publish_path))
             git.init_repo()
             git.configure_user(name="Gantry Bot", email="gantry@auto-deploy.local")
-            
-            # Add .gitignore
             git.add_gitignore()
             
             # Configure remote
@@ -243,17 +250,75 @@ class Publisher:
                 repo_name=target_repo
             )
             
-            # Commit and push
-            repo_url = git.commit_and_push(
-                branch="main",
-                message=f"Gantry Auto-Deploy: {manifest.project_name}"
+            # Commit and push to FEATURE BRANCH (not main!)
+            git.commit_and_push(
+                branch=feature_branch,
+                message=f"Gantry Mission: {manifest.project_name}"
             )
             
-            console.print(f"[green][PUBLISHER] Published: {repo_url}[/green]")
-            return repo_url
+            console.print(f"[green][PUBLISHER] Branch pushed: {feature_branch}[/green]")
             
         except GitError as e:
             raise PublishError(f"Git operation failed: {e}")
+        
+        # OPEN PULL REQUEST via GitHub API
+        try:
+            pr_body = self._build_pr_body(manifest, evidence_path)
+            
+            pr_url = create_pull_request(
+                token=self._token,
+                username=self._username,
+                repo_name=target_repo,
+                branch=feature_branch,
+                title=f"Gantry Mission: {manifest.project_name}",
+                body=pr_body,
+                base="main"
+            )
+            
+            console.print(f"[green][PUBLISHER] PR opened: {pr_url}[/green]")
+            return pr_url
+            
+        except PRCreationError as e:
+            # Even if PR creation fails, the branch was pushed
+            console.print(f"[yellow][PUBLISHER] PR creation failed: {e}[/yellow]")
+            repo_url = f"https://github.com/{self._username}/{target_repo}"
+            console.print(f"[yellow][PUBLISHER] Branch pushed to: {repo_url}[/yellow]")
+            return repo_url
+
+    def _build_pr_body(self, manifest: GantryManifest, evidence_path: Path) -> str:
+        """
+        Build the Pull Request description body.
+        
+        Args:
+            manifest: The build manifest
+            evidence_path: Path to mission evidence folder
+            
+        Returns:
+            Formatted PR body text
+        """
+        return f"""## Gantry Automated Build
+
+**Project:** {manifest.project_name}
+**Stack:** {manifest.stack}
+**Audit Status:** ✅ PASSED
+
+### Files Generated
+{chr(10).join(f'- `{f.path}`' for f in manifest.files)}
+
+### Audit Command
+```
+{manifest.audit_command}
+```
+
+### Run Command
+```
+{manifest.run_command}
+```
+
+---
+*This PR was automatically generated by [Gantry Fleet](https://github.com/Jarvis2021/gantry).*
+*Evidence Path: `{evidence_path}`*
+"""
 
     def _sanitize_repo_name(self, name: str) -> str:
         """

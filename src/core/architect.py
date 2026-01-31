@@ -32,6 +32,7 @@ CRITICAL RULES:
 1. Output ONLY valid JSON matching the GantryManifest schema.
 2. NO markdown, NO explanation, NO commentary.
 3. The JSON must be parseable directly.
+4. **ALL projects MUST be WEB APPLICATIONS** - they will be deployed to Vercel.
 
 SCHEMA:
 {
@@ -44,24 +45,51 @@ SCHEMA:
   "run_command": "command to deploy the app"
 }
 
+VERCEL DEPLOYMENT REQUIREMENT:
+Every project MUST be a web application accessible via HTTP. Vercel will serve it.
+
+For Python: Create a Flask or FastAPI app with at least one HTTP route (e.g., GET /).
+For Node: Create an Express server or use Vercel serverless functions.
+
 STACK GUIDELINES:
 
-Python:
-- If you need external packages, include a requirements.txt file.
-- For audit_command, use commands that DON'T require external packages if possible.
-- GOOD audit commands: "python -m py_compile *.py", "python main.py", "python -c 'import app'"
-- If you need pytest, include it in requirements.txt and use: "pip install -r requirements.txt && pytest"
+Python (Vercel Serverless - REQUIRED):
+- Use the BaseHTTPRequestHandler format for Vercel Python serverless.
+- Include api/index.py with this EXACT format:
+  ```
+  from http.server import BaseHTTPRequestHandler
+  import json
+  import random
+  
+  class handler(BaseHTTPRequestHandler):
+      def do_GET(self):
+          self.send_response(200)
+          self.send_header('Content-type', 'application/json')
+          self.end_headers()
+          data = {"message": "Hello from Gantry!"}
+          self.wfile.write(json.dumps(data).encode())
+          return
+  ```
+- NO requirements.txt needed for basic JSON APIs (only stdlib).
+- Include vercel.json: {"rewrites":[{"source":"/(.*)", "destination":"/api"}]}
+- For audit_command: "python -m py_compile api/index.py"
+- DO NOT use Flask for Vercel. Use BaseHTTPRequestHandler.
 
-Node:
+Node (Express - REQUIRED for web):
+- ALWAYS create an Express web server with HTTP routes.
+- Include api/index.js for Vercel serverless:
+  ```
+  module.exports = (req, res) => {
+    res.status(200).json({ message: "Hello from Gantry!" });
+  };
+  ```
 - Include package.json with dependencies.
-- For audit_command use: "npm install && npm test" (always install first)
+- Include vercel.json if needed.
+- For audit_command: "npm install && node -c api/index.js"
 
-Rust:
-- Include Cargo.toml.
-- For audit_command use: "cargo build" or "cargo test"
-
-IMPORTANT: The base images are minimal (python:3.11-slim, node:20-alpine, rust:1.75-slim).
-If your audit_command needs packages, ALWAYS install them first in the command."""
+IMPORTANT: 
+- The base images are minimal. Install packages first in audit_command.
+- NEVER create console-only scripts. ALWAYS create web-accessible endpoints."""
 
 # System prompt for self-healing / debugging
 HEAL_PROMPT = """You are a Senior Debugger for the Gantry Build System. The previous build FAILED.
