@@ -10,7 +10,6 @@
 import json
 import os
 import re
-from typing import Optional
 
 import requests
 from pydantic import ValidationError
@@ -90,8 +89,8 @@ public/index.html:
   <script>
     let todos = JSON.parse(localStorage.getItem('todos') || '[]');
     function render() {
-      document.getElementById('list').innerHTML = todos.map((t, i) => 
-        `<li class="${t.done ? 'done' : ''}" onclick="toggle(${i})">${t.text} <button class="delete" onclick="event.stopPropagation();del(${i})">×</button></li>`
+      document.getElementById('list').innerHTML = todos.map((t, i) =>
+        `<li class="${t.done ? 'done' : ''}" onclick="toggle(${i})">${t.text} <button class="delete" onclick="event.stopPropagation();del(${i})">x</button></li>`
       ).join('');
     }
     function addTodo() {
@@ -212,57 +211,58 @@ Return COMPLETE corrected manifest with ALL files."""
 
 class ArchitectError(Exception):
     """Raised when the Architect fails to generate a valid manifest."""
+
     pass
 
 
 class Architect:
     """
     The AI Brain that translates voice memos into Fabrication Instructions.
-    
+
     Uses Bedrock API Key for authentication.
     """
 
-    def __init__(self, api_key: Optional[str] = None, region: str = BEDROCK_REGION) -> None:
+    def __init__(self, api_key: str | None = None, region: str = BEDROCK_REGION) -> None:
         """
         Initialize the Bedrock client using API Key.
-        
+
         Args:
             api_key: Bedrock API key. Defaults to BEDROCK_API_KEY env var.
             region: AWS region for Bedrock.
-        
+
         Raises:
             ArchitectError: If API key is not provided.
         """
         self._api_key = api_key or os.getenv("BEDROCK_API_KEY")
         self._region = region
         self._endpoint = f"https://bedrock-runtime.{self._region}.amazonaws.com"
-        
+
         if not self._api_key:
             console.print("[red][ARCHITECT] BEDROCK_API_KEY not found[/red]")
             raise ArchitectError("BEDROCK_API_KEY environment variable not set")
-        
+
         console.print(f"[green][ARCHITECT] Brain online (region: {self._region})[/green]")
 
     def _clean_json(self, text: str) -> str:
         """
         Extract valid JSON from Claude's response.
-        
+
         Why: Claude sometimes wraps JSON in markdown, adds commentary,
         or outputs JSON with literal control characters that need escaping.
         """
         # Find JSON object boundaries
         first_brace = text.find("{")
         last_brace = text.rfind("}")
-        
+
         if first_brace == -1 or last_brace == -1 or first_brace >= last_brace:
             raise ArchitectError(f"No valid JSON in response: {text[:200]}...")
-        
-        json_str = text[first_brace:last_brace + 1]
-        
+
+        json_str = text[first_brace : last_brace + 1]
+
         # Fix common LLM JSON errors (trailing commas)
         json_str = re.sub(r",\s*}", "}", json_str)
         json_str = re.sub(r",\s*]", "]", json_str)
-        
+
         # Try to parse, if it fails, attempt to fix control characters
         try:
             json.loads(json_str)  # Test parse
@@ -273,124 +273,115 @@ class Architect:
             result = []
             in_string = False
             escape_next = False
-            
+
             for char in json_str:
                 if escape_next:
                     result.append(char)
                     escape_next = False
-                elif char == '\\':
+                elif char == "\\":
                     result.append(char)
                     escape_next = True
                 elif char == '"':
                     result.append(char)
                     in_string = not in_string
-                elif in_string and char == '\n':
-                    result.append('\\n')
-                elif in_string and char == '\r':
-                    result.append('\\r')
-                elif in_string and char == '\t':
-                    result.append('\\t')
+                elif in_string and char == "\n":
+                    result.append("\\n")
+                elif in_string and char == "\r":
+                    result.append("\\r")
+                elif in_string and char == "\t":
+                    result.append("\\t")
                 else:
                     result.append(char)
-            
-            return ''.join(result)
+
+            return "".join(result)
 
     def draft_blueprint(self, prompt: str) -> GantryManifest:
         """
         Draft Fabrication Instructions from a voice memo.
-        
+
         Args:
             prompt: The user's voice memo / build request.
-            
+
         Returns:
             A validated GantryManifest ready for the Foundry.
-            
+
         Raises:
             ArchitectError: If Claude fails or returns invalid JSON.
         """
         console.print(f"[cyan][ARCHITECT] Drafting blueprint: {prompt[:50]}...[/cyan]")
-        
+
         # Prepare request
         url = f"{self._endpoint}/model/{CLAUDE_MODEL_ID}/invoke"
-        
+
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
             "Authorization": f"Bearer {self._api_key}",
         }
-        
+
         body = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 4096,
             "system": SYSTEM_PROMPT,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
+            "messages": [{"role": "user", "content": prompt}],
         }
-        
+
         try:
             response = requests.post(url, headers=headers, json=body, timeout=60)
-            
+
             if response.status_code != 200:
                 console.print(f"[red][ARCHITECT] API error: {response.status_code}[/red]")
                 console.print(f"[red]{response.text}[/red]")
                 raise ArchitectError(f"Bedrock API error: {response.status_code} - {response.text}")
-            
+
             response_body = response.json()
             raw_text = response_body["content"][0]["text"]
-            
+
             console.print("[cyan][ARCHITECT] Response received, parsing...[/cyan]")
-            
+
         except requests.RequestException as e:
             console.print(f"[red][ARCHITECT] Request failed: {e}[/red]")
             raise ArchitectError(f"Bedrock API request failed: {e}") from e
         except (KeyError, IndexError) as e:
-            console.print(f"[red][ARCHITECT] Unexpected response format[/red]")
+            console.print("[red][ARCHITECT] Unexpected response format[/red]")
             raise ArchitectError(f"Unexpected Bedrock response: {e}") from e
-        
+
         # Clean and parse JSON
         try:
             clean_json = self._clean_json(raw_text)
             manifest_data = json.loads(clean_json)
         except json.JSONDecodeError as e:
-            console.print(f"[red][ARCHITECT] JSON parsing failed[/red]")
+            console.print("[red][ARCHITECT] JSON parsing failed[/red]")
             raise ArchitectError(f"Invalid JSON: {e}") from e
-        
+
         # Validate with Pydantic
         try:
             manifest = GantryManifest(**manifest_data)
             console.print(f"[green][ARCHITECT] Blueprint ready: {manifest.project_name}[/green]")
             return manifest
         except ValidationError as e:
-            console.print(f"[red][ARCHITECT] Manifest validation failed[/red]")
+            console.print("[red][ARCHITECT] Manifest validation failed[/red]")
             raise ArchitectError(f"Manifest validation failed: {e}") from e
 
-    def heal_blueprint(
-        self, 
-        original_manifest: GantryManifest, 
-        error_log: str
-    ) -> GantryManifest:
+    def heal_blueprint(self, original_manifest: GantryManifest, error_log: str) -> GantryManifest:
         """
         Self-Healing: Analyze error and generate a fixed manifest.
-        
+
         This is the "Repair" skill that makes Gantry agentic.
         When a build fails, the Architect reads the error and fixes the code.
-        
+
         Args:
             original_manifest: The manifest that failed.
             error_log: The error output from the failed audit.
-            
+
         Returns:
             A new, corrected GantryManifest.
-            
+
         Raises:
             ArchitectError: If healing fails.
         """
-        console.print(f"[yellow][ARCHITECT] Self-healing: analyzing failure...[/yellow]")
-        
+        console.print("[yellow][ARCHITECT] Self-healing: analyzing failure...[/yellow]")
+
         # Build the healing prompt with context
         healing_request = f"""## FAILED BUILD - NEEDS FIX
 
@@ -405,112 +396,109 @@ class Architect:
 ```
 
 Analyze the error and return a CORRECTED GantryManifest that fixes this issue."""
-        
+
         # Prepare request
         url = f"{self._endpoint}/model/{CLAUDE_MODEL_ID}/invoke"
-        
+
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
             "Authorization": f"Bearer {self._api_key}",
         }
-        
+
         body = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 4096,
             "system": HEAL_PROMPT,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": healing_request
-                }
-            ]
+            "messages": [{"role": "user", "content": healing_request}],
         }
-        
+
         try:
             response = requests.post(url, headers=headers, json=body, timeout=60)
-            
+
             if response.status_code != 200:
                 console.print(f"[red][ARCHITECT] Healing API error: {response.status_code}[/red]")
                 raise ArchitectError(f"Healing failed: {response.status_code}")
-            
+
             response_body = response.json()
             raw_text = response_body["content"][0]["text"]
-            
+
             console.print("[cyan][ARCHITECT] Healing response received, parsing...[/cyan]")
-            
+
         except requests.RequestException as e:
             console.print(f"[red][ARCHITECT] Healing request failed: {e}[/red]")
             raise ArchitectError(f"Healing request failed: {e}") from e
         except (KeyError, IndexError) as e:
-            console.print(f"[red][ARCHITECT] Unexpected healing response[/red]")
+            console.print("[red][ARCHITECT] Unexpected healing response[/red]")
             raise ArchitectError(f"Unexpected response: {e}") from e
-        
+
         # Clean and parse JSON
         try:
             clean_json = self._clean_json(raw_text)
             manifest_data = json.loads(clean_json)
         except json.JSONDecodeError as e:
-            console.print(f"[red][ARCHITECT] Healing JSON parse failed[/red]")
+            console.print("[red][ARCHITECT] Healing JSON parse failed[/red]")
             raise ArchitectError(f"Invalid healing JSON: {e}") from e
-        
+
         # Validate with Pydantic
         try:
             healed_manifest = GantryManifest(**manifest_data)
-            console.print(f"[green][ARCHITECT] Healed blueprint ready: {healed_manifest.project_name}[/green]")
+            console.print(
+                f"[green][ARCHITECT] Healed blueprint ready: {healed_manifest.project_name}[/green]"
+            )
             return healed_manifest
         except ValidationError as e:
-            console.print(f"[red][ARCHITECT] Healed manifest validation failed[/red]")
+            console.print("[red][ARCHITECT] Healed manifest validation failed[/red]")
             raise ArchitectError(f"Healed manifest invalid: {e}") from e
 
     def consult(self, messages: list[dict]) -> dict:
         """
         Architectural consultation - have a conversation about the project.
-        
+
         This is the "Critic" skill that reviews requirements before building.
         The Architect answers questions about scalability, testing, security, etc.
-        
+
         Args:
             messages: Conversation history [{"role": "user"|"assistant", "content": "..."}]
-            
+
         Returns:
             dict with response, ready_to_build, suggested_stack, etc.
         """
-        console.print(f"[cyan][ARCHITECT] Consulting on architecture...[/cyan]")
-        
+        console.print("[cyan][ARCHITECT] Consulting on architecture...[/cyan]")
+
         url = f"{self._endpoint}/model/{CLAUDE_MODEL_ID}/invoke"
-        
+
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
             "Authorization": f"Bearer {self._api_key}",
         }
-        
+
         body = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 1024,
             "system": CONSULT_PROMPT,
-            "messages": messages
+            "messages": messages,
         }
-        
+
         try:
             response = requests.post(url, headers=headers, json=body, timeout=30)
-            
+
             if response.status_code != 200:
                 console.print(f"[red][ARCHITECT] Consult API error: {response.status_code}[/red]")
                 return {
                     "response": "I'm having trouble connecting. Please try again.",
-                    "ready_to_build": False
+                    "ready_to_build": False,
                 }
-            
+
             response_body = response.json()
             raw_text = response_body["content"][0]["text"]
-            
+
             # Try to parse as JSON
             try:
                 clean_json = self._clean_json(raw_text)
                 result = json.loads(clean_json)
-                
+
                 # Handle case where Claude double-encoded JSON in the response field
                 resp_field = result.get("response", "")
                 if isinstance(resp_field, str) and resp_field.strip().startswith("{"):
@@ -519,22 +507,22 @@ Analyze the error and return a CORRECTED GantryManifest that fixes this issue.""
                         inner = json.loads(resp_field)
                         if isinstance(inner, dict) and "response" in inner:
                             result = inner  # Use the inner JSON
-                            console.print("[green][ARCHITECT] Successfully extracted inner JSON[/green]")
+                            console.print(
+                                "[green][ARCHITECT] Successfully extracted inner JSON[/green]"
+                            )
                     except json.JSONDecodeError as e:
                         console.print(f"[yellow][ARCHITECT] Inner JSON parse failed: {e}[/yellow]")
-                
-                console.print(f"[green][ARCHITECT] Consultation complete (ready: {result.get('ready_to_build', False)})[/green]")
+
+                console.print(
+                    f"[green][ARCHITECT] Consultation complete (ready: {result.get('ready_to_build', False)})[/green]"
+                )
                 return result
             except (json.JSONDecodeError, ArchitectError) as e:
-                console.print(f"[yellow][ARCHITECT] JSON parse failed: {e}, returning raw text[/yellow]")
-                return {
-                    "response": raw_text,
-                    "ready_to_build": False
-                }
-                
+                console.print(
+                    f"[yellow][ARCHITECT] JSON parse failed: {e}, returning raw text[/yellow]"
+                )
+                return {"response": raw_text, "ready_to_build": False}
+
         except requests.RequestException as e:
             console.print(f"[red][ARCHITECT] Consult request failed: {e}[/red]")
-            return {
-                "response": f"Connection error: {e}",
-                "ready_to_build": False
-            }
+            return {"response": f"Connection error: {e}", "ready_to_build": False}

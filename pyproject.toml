@@ -37,10 +37,26 @@ select = [
 ]
 
 ignore = [
-    "E501",   # line too long (handled by formatter)
-    "B008",   # function call in default argument
+    "E501",    # line too long (handled by formatter)
+    "E402",    # module level import not at top (needed for dotenv loading)
+    "B008",    # function call in default argument
+    "B904",    # raise from err (verbose, not always needed)
+    "PLR0912", # too many branches (complex logic is sometimes needed)
     "PLR0913", # too many arguments
+    "PLR0915", # too many statements (complex functions)
     "PLR2004", # magic value comparison
+    "PLW0603", # global statement (needed for connection pool)
+    "PLW1508", # invalid env default type (int is fine)
+    "PLW1510", # subprocess without check (handled manually)
+    "PLC0415", # import not at top-level (sometimes needed)
+    "PTH110",  # os.path.exists (mixed pathlib usage is fine)
+    "PTH123",  # open() vs Path.open() (both work fine)
+    "ARG002",  # unused method argument (interface compatibility)
+    "W291",    # trailing whitespace in SQL strings
+    "W293",    # blank line with whitespace
+    "RUF001",  # ambiguous unicode (× in HTML templates)
+    "RUF013",  # implicit Optional (verbose typing)
+    "SIM105",  # contextlib.suppress (try/except is clearer)
 ]
 
 # Allow autofix for all enabled rules

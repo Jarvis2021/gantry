@@ -10,15 +10,22 @@
 # -----------------------------------------------------------------------------
 
 from .architect import Architect, ArchitectError
-from .foundry import Foundry, AuditFailedError, BuildTimeoutError
+from .db import create_mission, get_mission, init_db, update_mission_status
 from .fleet import FleetManager
+from .foundry import AuditFailedError, BuildTimeoutError, Foundry
 from .policy import PolicyGate, SecurityViolation
-from .db import init_db, create_mission, update_mission_status, get_mission
 
 __all__ = [
-    "Architect", "ArchitectError",
-    "Foundry", "AuditFailedError", "BuildTimeoutError",
+    "Architect",
+    "ArchitectError",
+    "AuditFailedError",
+    "BuildTimeoutError",
     "FleetManager",
-    "PolicyGate", "SecurityViolation",
-    "init_db", "create_mission", "update_mission_status", "get_mission"
+    "Foundry",
+    "PolicyGate",
+    "SecurityViolation",
+    "create_mission",
+    "get_mission",
+    "init_db",
+    "update_mission_status",
 ]
