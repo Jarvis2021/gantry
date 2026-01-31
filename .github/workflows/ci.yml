@@ -193,3 +193,4 @@ jobs:
           echo "║  ✓ Security Scan                                  ║"
           echo "║  ✓ Docker Build                                   ║"
           echo "╚═══════════════════════════════════════════════════╝"
+# CI Trigger
