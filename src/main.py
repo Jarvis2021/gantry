@@ -1,12 +1,14 @@
 # -----------------------------------------------------------------------------
 # GANTRY FLEET - API INTERFACE
 # -----------------------------------------------------------------------------
-# Responsibility: The endpoint for voice-activated commands.
-# Designed for iOS Shortcuts and TTS engines.
+# Responsibility: The endpoint for voice-activated and chat-based commands.
+# Designed for iOS Shortcuts, TTS engines, and web UI.
 #
 # Endpoints:
-# - POST /gantry/architect: Accept voice memo, dispatch mission
+# - GET /: Serve the Gantry Console UI
+# - POST /gantry/architect: Accept voice memo/chat, dispatch mission
 # - GET /gantry/status/<id>: Get mission status and speech
+# - GET /gantry/missions: List recent missions
 # -----------------------------------------------------------------------------
 
 import os
@@ -22,7 +24,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from dotenv import load_dotenv
 load_dotenv(PROJECT_ROOT / ".env")
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from rich.console import Console
 from rich.panel import Panel
 
@@ -30,7 +32,10 @@ from src.core.fleet import FleetManager
 from src.core.db import get_mission, list_missions, init_db
 
 console = Console()
-app = Flask(__name__)
+
+# Static folder for UI
+STATIC_DIR = Path(__file__).parent / "static"
+app = Flask(__name__, static_folder=str(STATIC_DIR))
 
 # Global Fleet Manager (lazy init)
 fleet: Optional[FleetManager] = None
@@ -42,6 +47,12 @@ def get_fleet() -> FleetManager:
     if fleet is None:
         fleet = FleetManager()
     return fleet
+
+
+@app.route("/", methods=["GET"])
+def index():
+    """Serve the Gantry Console UI."""
+    return send_from_directory(STATIC_DIR, "index.html")
 
 
 @app.route("/health", methods=["GET"])

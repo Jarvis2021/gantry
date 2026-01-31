@@ -4,21 +4,24 @@
 # Responsibility: Orchestrates the complete mission pipeline with self-repair.
 # Connects: Database -> Architect -> Policy -> Foundry -> [Heal Loop] -> Deploy
 #
-# Self-Healing: When a build fails, the Architect analyzes the error and
+# Self-Healing: When a build/deploy fails, the Architect analyzes the error and
 # generates a fixed manifest. This loop repeats up to MAX_RETRIES times.
 #
+# Progress Updates: Status is pushed every few seconds during long operations.
 # Thread-based concurrency: Each mission runs in its own thread.
 # Audio-first: Every outcome has a speech field for TTS.
 # -----------------------------------------------------------------------------
 
 import threading
-from typing import Optional
+import time
+from typing import Optional, Callable
 
 from rich.console import Console
 
 from src.core.architect import Architect, ArchitectError
 from src.core.db import create_mission, update_mission_status, init_db
 from src.core.foundry import Foundry, AuditFailedError, BuildTimeoutError, MISSIONS_DIR
+from src.core.deployer import DeploymentError
 from src.core.policy import PolicyGate, SecurityViolation
 from src.core.publisher import Publisher, SecurityBlock, PublishError
 
@@ -26,6 +29,57 @@ console = Console()
 
 # Self-Healing Configuration
 MAX_RETRIES = 3  # Maximum heal attempts before giving up
+
+# Progress Update Interval
+PROGRESS_UPDATE_SECONDS = 5
+
+
+class ProgressTracker:
+    """
+    Tracks mission progress and sends periodic status updates.
+    
+    Purpose: Keep user informed during long-running operations.
+    Updates DB every PROGRESS_UPDATE_SECONDS with elapsed time.
+    """
+    
+    def __init__(self, mission_id: str, phase: str) -> None:
+        self.mission_id = mission_id
+        self.phase = phase
+        self.start_time = time.time()
+        self._stop_event = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+    
+    def _update_loop(self) -> None:
+        """Background loop to push progress updates."""
+        while not self._stop_event.wait(PROGRESS_UPDATE_SECONDS):
+            elapsed = int(time.time() - self.start_time)
+            update_mission_status(
+                self.mission_id,
+                self.phase,
+                f"{self.phase}... ({elapsed}s elapsed)"
+            )
+            console.print(f"[dim][PROGRESS] {self.phase} - {elapsed}s elapsed[/dim]")
+    
+    def start(self) -> "ProgressTracker":
+        """Start the progress tracker."""
+        self._thread = threading.Thread(
+            target=self._update_loop,
+            daemon=True,
+            name=f"progress-{self.mission_id[:8]}"
+        )
+        self._thread.start()
+        return self
+    
+    def stop(self) -> None:
+        """Stop the progress tracker."""
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=1)
+    
+    def update_phase(self, new_phase: str) -> None:
+        """Update the current phase."""
+        self.phase = new_phase
+        self.start_time = time.time()
 
 
 class FleetManager:
@@ -55,6 +109,27 @@ class FleetManager:
         if self._architect is None:
             self._architect = Architect()
         return self._architect
+
+    def _heal_and_retry(
+        self, 
+        mission_id: str, 
+        architect: Architect, 
+        manifest, 
+        error_log: str, 
+        attempt: int,
+        error_type: str
+    ) -> None:
+        """
+        Common self-healing logic for both audit and deployment failures.
+        
+        Updates mission status and logs the healing attempt.
+        """
+        console.print(f"[yellow][Mission {mission_id[:8]}] Engaging self-repair for {error_type}...[/yellow]")
+        update_mission_status(
+            mission_id,
+            "HEALING",
+            f"{error_type} failed. Self-repair attempt {attempt} of {MAX_RETRIES}."
+        )
 
     def dispatch_mission(self, prompt: str) -> str:
         """
@@ -89,17 +164,19 @@ class FleetManager:
         """
         Execute the complete mission pipeline with SELF-HEALING.
         
-        When a build fails, the Architect analyzes the error and generates
+        When a build/deploy fails, the Architect analyzes the error and generates
         a fixed manifest. This loop repeats up to MAX_RETRIES times.
         
-        Flow: Draft → Build → [Fail → Heal → Retry] → Deploy
+        Flow: Draft → Build → [Fail → Heal → Retry] → Deploy → Publish
         
         Args:
             mission_id: The UUID of the mission.
             prompt: The voice memo.
         """
+        progress: Optional[ProgressTracker] = None
+        
         try:
-            # Phase 1: Initial Architecting
+            # Phase 1: Initial Architecting (with progress tracking)
             console.print(f"[cyan][Mission {mission_id[:8]}] Drafting blueprint...[/cyan]")
             update_mission_status(
                 mission_id, 
@@ -107,8 +184,10 @@ class FleetManager:
                 "Drafting blueprint. Stand by."
             )
             
+            progress = ProgressTracker(mission_id, "ARCHITECTING").start()
             architect = self._get_architect()
             manifest = architect.draft_blueprint(prompt)
+            progress.stop()
             
             # Phase 2: Policy Check
             console.print(f"[cyan][Mission {mission_id[:8]}] Policy check...[/cyan]")
@@ -120,13 +199,14 @@ class FleetManager:
             
             self._policy.validate(manifest)
             
-            # Phase 3: Build with Self-Healing Loop
+            # Phase 3: Build + Deploy with UNIFIED Self-Healing Loop
+            # This loop heals BOTH audit failures AND deployment failures
             attempt = 0
-            build_success = False
+            mission_complete = False
             result = None
-            last_error = None
+            deploy_url = None
             
-            while attempt < MAX_RETRIES and not build_success:
+            while attempt < MAX_RETRIES and not mission_complete:
                 attempt += 1
                 
                 console.print(f"[cyan][Mission {mission_id[:8]}] Building Pod (attempt {attempt}/{MAX_RETRIES})...[/cyan]")
@@ -136,47 +216,57 @@ class FleetManager:
                     f"Building {manifest.project_name}. Attempt {attempt} of {MAX_RETRIES}."
                 )
                 
+                # Start progress tracker for building
+                progress = ProgressTracker(mission_id, "BUILDING").start()
+                
                 try:
                     result = self._foundry.build(manifest, mission_id)
-                    build_success = True
+                    progress.stop()
                     console.print(f"[green][Mission {mission_id[:8]}] Build PASSED on attempt {attempt}[/green]")
                     
+                    # Deployment is part of build result
+                    deploy_url = result.deploy_url if result else None
+                    
+                    # If we got here without errors, mission is complete
+                    mission_complete = True
+                    
                 except AuditFailedError as e:
-                    last_error = e
+                    progress.stop()
                     console.print(f"[yellow][Mission {mission_id[:8]}] Audit failed on attempt {attempt}[/yellow]")
                     
                     if attempt < MAX_RETRIES:
-                        # Self-Healing: Ask Architect to fix the code
-                        console.print(f"[yellow][Mission {mission_id[:8]}] Engaging self-repair...[/yellow]")
-                        update_mission_status(
-                            mission_id,
-                            "HEALING",
-                            f"Audit failed. Attempting self-repair {attempt} of {MAX_RETRIES}."
-                        )
+                        self._heal_and_retry(mission_id, architect, manifest, e.output, attempt, "Audit")
+                        manifest = architect.heal_blueprint(manifest, e.output)
+                    else:
+                        console.print(f"[red][Mission {mission_id[:8]}] Self-repair exhausted[/red]")
+                
+                except DeploymentError as e:
+                    progress.stop()
+                    console.print(f"[yellow][Mission {mission_id[:8]}] Deployment failed on attempt {attempt}[/yellow]")
+                    
+                    if attempt < MAX_RETRIES:
+                        # Self-heal deployment errors (fix vercel.json, etc.)
+                        error_context = f"Vercel deployment failed: {str(e)}"
+                        self._heal_and_retry(mission_id, architect, manifest, error_context, attempt, "Deploy")
                         
                         try:
-                            # Pass the error log to the Architect for healing
-                            manifest = architect.heal_blueprint(manifest, e.output)
-                            console.print(f"[cyan][Mission {mission_id[:8]}] Healed blueprint received, retrying...[/cyan]")
-                        except ArchitectError as heal_error:
-                            console.print(f"[red][Mission {mission_id[:8]}] Self-repair failed: {heal_error}[/red]")
-                            # Continue to next attempt anyway
+                            manifest = architect.heal_blueprint(manifest, error_context)
+                            console.print(f"[cyan][Mission {mission_id[:8]}] Deployment fix received, retrying...[/cyan]")
+                        except ArchitectError:
+                            console.print(f"[red][Mission {mission_id[:8]}] Deployment self-repair failed[/red]")
                     else:
-                        console.print(f"[red][Mission {mission_id[:8]}] Self-repair exhausted after {MAX_RETRIES} attempts[/red]")
+                        console.print(f"[red][Mission {mission_id[:8]}] Deployment self-repair exhausted[/red]")
             
-            # Check if build ultimately succeeded
-            if not build_success:
+            # Check if mission ultimately succeeded
+            if not mission_complete:
                 update_mission_status(
                     mission_id,
                     "FAILED",
-                    f"Mission critical failure. Self-repair exhausted after {MAX_RETRIES} attempts."
+                    f"Mission failed. Self-repair exhausted after {MAX_RETRIES} attempts."
                 )
                 return
             
-            # Phase 4: Deployment (only if build succeeded)
-            deploy_url = result.deploy_url if result else None
-            
-            # Phase 5: Publishing via Pull Request (if configured)
+            # Phase 4: Publishing via Pull Request (if configured)
             pr_url = None
             if self._publisher.is_configured():
                 console.print(f"[cyan][Mission {mission_id[:8]}] Opening Pull Request...[/cyan]")
@@ -186,12 +276,14 @@ class FleetManager:
                     "Build passed. Opening Pull Request."
                 )
                 
+                progress = ProgressTracker(mission_id, "PUBLISHING").start()
                 evidence_path = MISSIONS_DIR / mission_id
                 pr_url = self._publisher.publish_mission(
                     manifest, 
                     str(evidence_path),
                     mission_id=mission_id
                 )
+                progress.stop()
             
             # Determine final status and speech
             if deploy_url and pr_url:
@@ -227,7 +319,9 @@ class FleetManager:
                     "Gantry successful. Build verified."
                 )
             
-        except ArchitectError as e:
+        except ArchitectError:
+            if progress:
+                progress.stop()
             console.print(f"[red][Mission {mission_id[:8]}] Architect failed[/red]")
             update_mission_status(
                 mission_id,
@@ -235,7 +329,9 @@ class FleetManager:
                 "Mission aborted. Blueprint generation failed."
             )
             
-        except SecurityViolation as e:
+        except SecurityViolation:
+            if progress:
+                progress.stop()
             console.print(f"[red][Mission {mission_id[:8]}] Policy violation[/red]")
             update_mission_status(
                 mission_id,
@@ -244,6 +340,8 @@ class FleetManager:
             )
             
         except BuildTimeoutError:
+            if progress:
+                progress.stop()
             console.print(f"[red][Mission {mission_id[:8]}] Timeout[/red]")
             update_mission_status(
                 mission_id,
@@ -252,6 +350,8 @@ class FleetManager:
             )
             
         except SecurityBlock as e:
+            if progress:
+                progress.stop()
             console.print(f"[red][Mission {mission_id[:8]}] Security block: {e}[/red]")
             update_mission_status(
                 mission_id,
@@ -260,6 +360,8 @@ class FleetManager:
             )
             
         except PublishError as e:
+            if progress:
+                progress.stop()
             console.print(f"[red][Mission {mission_id[:8]}] Publish failed: {e}[/red]")
             update_mission_status(
                 mission_id,
@@ -268,6 +370,8 @@ class FleetManager:
             )
             
         except Exception as e:
+            if progress:
+                progress.stop()
             console.print(f"[red][Mission {mission_id[:8]}] Critical error: {e}[/red]")
             update_mission_status(
                 mission_id,
