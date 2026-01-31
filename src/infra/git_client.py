@@ -4,25 +4,197 @@
 # Responsibility: Execute Git operations for publishing code to GitHub.
 # Uses subprocess for lean, direct git command execution.
 #
+# Features:
+# - Auto-create repositories via GitHub API
+# - Push code using HTTPS with PAT
+#
 # Security:
 # - PAT tokens are passed securely via URL encoding
 # - Tokens are NEVER logged in plain text
 # - Git config uses token only for remote operations
 # -----------------------------------------------------------------------------
 
-import os
 import subprocess
 from pathlib import Path
 from typing import Optional
 
+import requests
 from rich.console import Console
 
 console = Console()
+
+# GitHub API configuration
+GITHUB_API_URL = "https://api.github.com"
 
 
 class GitError(Exception):
     """Raised when a Git operation fails."""
     pass
+
+
+class RepoCreationError(Exception):
+    """Raised when GitHub repo creation fails."""
+    pass
+
+
+def create_github_repo(token: str, repo_name: str, private: bool = False) -> str:
+    """
+    Create a new GitHub repository via API.
+    
+    This enables fully automatic publishing - no need to pre-create repos.
+    
+    Args:
+        token: GitHub Personal Access Token with 'repo' scope
+        repo_name: Name for the new repository
+        private: Whether to create a private repo (default: public)
+        
+    Returns:
+        The repository clone URL
+        
+    Raises:
+        RepoCreationError: If API call fails
+    """
+    console.print(f"[cyan][GITHUB API] Creating repository: {repo_name}[/cyan]")
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"
+    }
+    
+    payload = {
+        "name": repo_name,
+        "private": private,
+        "auto_init": False,  # Don't initialize with README (we're pushing our own files)
+        "description": f"Auto-deployed by Gantry Fleet"
+    }
+    
+    try:
+        response = requests.post(
+            f"{GITHUB_API_URL}/user/repos",
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        
+        if response.status_code == 201:
+            data = response.json()
+            clone_url = data.get("clone_url", "")
+            console.print(f"[green][GITHUB API] Repository created: {repo_name}[/green]")
+            return clone_url
+        
+        elif response.status_code == 422:
+            # 422 = Validation failed (repo already exists)
+            error_data = response.json()
+            errors = error_data.get("errors", [])
+            for err in errors:
+                if err.get("message") == "name already exists on this account":
+                    console.print(f"[yellow][GITHUB API] Repository already exists: {repo_name}[/yellow]")
+                    return f"https://github.com/{repo_name}.git"  # Return existing
+            
+            raise RepoCreationError(f"Validation failed: {error_data}")
+        
+        elif response.status_code == 401:
+            raise RepoCreationError("Invalid GitHub token or missing 'repo' scope")
+        
+        elif response.status_code == 403:
+            raise RepoCreationError("Token lacks permission to create repositories")
+        
+        else:
+            raise RepoCreationError(f"GitHub API error {response.status_code}: {response.text}")
+            
+    except requests.RequestException as e:
+        raise RepoCreationError(f"GitHub API request failed: {e}")
+
+
+class PRCreationError(Exception):
+    """Raised when GitHub PR creation fails."""
+    pass
+
+
+def create_pull_request(
+    token: str,
+    username: str,
+    repo_name: str,
+    branch: str,
+    title: str,
+    body: str,
+    base: str = "main"
+) -> str:
+    """
+    Create a Pull Request via GitHub API.
+    
+    This implements the "Junior Dev Model" - Gantry proposes, human approves.
+    
+    Args:
+        token: GitHub Personal Access Token
+        username: GitHub username (repo owner)
+        repo_name: Repository name
+        branch: Source branch (feature branch)
+        title: PR title
+        body: PR description
+        base: Target branch (default: main)
+        
+    Returns:
+        The Pull Request URL
+        
+    Raises:
+        PRCreationError: If PR creation fails
+    """
+    console.print(f"[cyan][GITHUB API] Opening Pull Request: {title}[/cyan]")
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"
+    }
+    
+    payload = {
+        "title": title,
+        "body": body,
+        "head": branch,
+        "base": base
+    }
+    
+    try:
+        response = requests.post(
+            f"{GITHUB_API_URL}/repos/{username}/{repo_name}/pulls",
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        
+        if response.status_code == 201:
+            data = response.json()
+            pr_url = data.get("html_url", "")
+            pr_number = data.get("number", "?")
+            console.print(f"[green][GITHUB API] PR #{pr_number} created: {pr_url}[/green]")
+            return pr_url
+        
+        elif response.status_code == 422:
+            # Could be "no commits between branches" or PR already exists
+            error_data = response.json()
+            message = error_data.get("message", "")
+            errors = error_data.get("errors", [])
+            
+            # Check if PR already exists
+            if "A pull request already exists" in str(errors):
+                console.print(f"[yellow][GITHUB API] PR already exists for branch {branch}[/yellow]")
+                return f"https://github.com/{username}/{repo_name}/pulls"
+            
+            raise PRCreationError(f"PR validation failed: {message} - {errors}")
+        
+        elif response.status_code == 404:
+            raise PRCreationError(f"Repository not found: {username}/{repo_name}")
+        
+        elif response.status_code == 401:
+            raise PRCreationError("Invalid GitHub token")
+        
+        else:
+            raise PRCreationError(f"GitHub API error {response.status_code}: {response.text}")
+            
+    except requests.RequestException as e:
+        raise PRCreationError(f"GitHub API request failed: {e}")
 
 
 class GitProvider:

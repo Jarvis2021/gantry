@@ -1,25 +1,39 @@
 # -----------------------------------------------------------------------------
-# THE PUBLISHER - GREEN-ONLY PUSH
+# THE PUBLISHER - PR ENGINE (Junior Dev Model)
 # -----------------------------------------------------------------------------
-# Responsibility: Push successfully audited code to GitHub.
-# Enforces the "Green Light Deploy" rule - only passing builds get published.
+# Responsibility: Push code to GitHub via Pull Requests for human review.
+# Enforces "Green Light Deploy" + "Junior Dev Model" rules.
 #
 # The Gate:
-# - Reads audit_report.json from evidence path
 # - BLOCKS any push if audit status != "PASS"
-# - This is the final security checkpoint before code goes public
+# - NEVER pushes directly to main/master
+# - ALWAYS creates feature branch and opens PR
+#
+# Why PR Model:
+# - Gantry is your Staff Engineer, YOU remain the Lead
+# - Prevents accidental secret leaks
+# - Human oversight on all deployments
 # -----------------------------------------------------------------------------
 
 import json
 import os
+import re
 import shutil
+import uuid
 from pathlib import Path
 from typing import Optional
 
 from rich.console import Console
 
 from src.domain.models import GantryManifest
-from src.infra.git_client import GitProvider, GitError
+from src.infra.git_client import (
+    GitProvider, 
+    GitError, 
+    create_github_repo, 
+    RepoCreationError,
+    create_pull_request,
+    PRCreationError
+)
 
 console = Console()
 
@@ -36,15 +50,25 @@ class PublishError(Exception):
 
 class Publisher:
     """
-    The Green-Only Publisher.
+    The PR Engine (Junior Dev Model).
     
-    Enforces the core Gantry Guarantee:
-    "Code is only pushed if the Critic Agent passes audits."
+    Enforces the Gantry Guarantee + Git Safety:
+    - "Code is only pushed if the Critic Agent passes audits."
+    - "NEVER push directly to main - ALWAYS open a PR."
     
     Flow:
     1. Check audit_report.json for PASS verdict
-    2. If PASS: Initialize git, commit files, push to GitHub
+    2. If PASS:
+       a. Create feature branch: feat/{project}-{short_id}
+       b. Commit files to feature branch
+       c. Push feature branch
+       d. Open Pull Request via GitHub API
     3. If FAIL: Raise SecurityBlock (no code leaves the building)
+    
+    Why PR Model:
+    - Gantry is your Staff Engineer; YOU remain the Lead
+    - Human review before merge prevents accidents
+    - Professional workflow for production systems
     """
 
     def __init__(self) -> None:
@@ -187,7 +211,23 @@ class Publisher:
         # Prepare publish folder with source files
         publish_path = self._prepare_publish_folder(manifest, evidence_path)
         
-        # Initialize Git
+        # Determine repository name
+        target_repo = repo_name or manifest.project_name
+        # Sanitize repo name (GitHub requirements)
+        target_repo = self._sanitize_repo_name(target_repo)
+        
+        # AUTO-CREATE REPOSITORY via GitHub API
+        try:
+            create_github_repo(
+                token=self._token,
+                repo_name=target_repo,
+                private=False  # Public by default
+            )
+        except RepoCreationError as e:
+            console.print(f"[yellow][PUBLISHER] Repo creation note: {e}[/yellow]")
+            # Continue anyway - repo might already exist
+        
+        # Initialize Git and push
         try:
             git = GitProvider(str(publish_path))
             git.init_repo()
@@ -197,7 +237,6 @@ class Publisher:
             git.add_gitignore()
             
             # Configure remote
-            target_repo = repo_name or manifest.project_name
             git.configure_auth(
                 token=self._token,
                 username=self._username,
@@ -215,3 +254,31 @@ class Publisher:
             
         except GitError as e:
             raise PublishError(f"Git operation failed: {e}")
+
+    def _sanitize_repo_name(self, name: str) -> str:
+        """
+        Sanitize repository name for GitHub requirements.
+        
+        GitHub repo names can only contain:
+        - Alphanumeric characters
+        - Hyphens (-)
+        - Underscores (_)
+        - Periods (.)
+        
+        Args:
+            name: Raw project name
+            
+        Returns:
+            Sanitized repository name
+        """
+        import re
+        # Replace spaces with hyphens
+        sanitized = name.replace(" ", "-")
+        # Remove any characters that aren't alphanumeric, hyphen, underscore, or period
+        sanitized = re.sub(r"[^a-zA-Z0-9\-_.]", "", sanitized)
+        # Ensure it doesn't start/end with a period
+        sanitized = sanitized.strip(".")
+        # Lowercase for consistency
+        sanitized = sanitized.lower()
+        
+        return sanitized or "gantry-project"

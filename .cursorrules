@@ -102,7 +102,24 @@
   - Pass VERCEL_TOKEN securely from host environment.
 
 # -----------------------------------------------------------------------------
-# 9. DEFINITION OF DONE (STRICT ENFORCEMENT)
+# 9. GIT SAFETY (JUNIOR DEV MODEL)
+# -----------------------------------------------------------------------------
+# Gantry operates like a Junior Developer - it proposes, YOU approve.
+#
+- **NEVER PUSH TO MAIN**:
+  - NEVER push directly to `main` or `master` branch.
+  - ALWAYS create a unique feature branch: `feat/{project}-{short_id}`.
+  - ALWAYS open a Pull Request (PR) for human review.
+- **PR WORKFLOW**:
+  - Create branch → Push branch → Open PR via GitHub API.
+  - PR Title: "Gantry Mission: {project_name}"
+  - PR Body: Include audit status and evidence path.
+  - Return the PR URL for review notification.
+- **WHY**: This prevents accidental secret leaks and maintains human oversight.
+  Gantry is your Staff Engineer; YOU remain the Lead.
+
+# -----------------------------------------------------------------------------
+# 10. DEFINITION OF DONE (STRICT ENFORCEMENT)
 # -----------------------------------------------------------------------------
 # A task is NOT complete until ALL of the following are verified:
 #

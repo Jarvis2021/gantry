@@ -176,35 +176,47 @@ class FleetManager:
             # Phase 4: Deployment (only if build succeeded)
             deploy_url = result.deploy_url if result else None
             
-            # Phase 5: Publishing to GitHub (if configured)
-            repo_url = None
+            # Phase 5: Publishing via Pull Request (if configured)
+            pr_url = None
             if self._publisher.is_configured():
-                console.print(f"[cyan][Mission {mission_id[:8]}] Publishing to GitHub...[/cyan]")
+                console.print(f"[cyan][Mission {mission_id[:8]}] Opening Pull Request...[/cyan]")
                 update_mission_status(
                     mission_id,
                     "PUBLISHING",
-                    "Build passed. Pushing to GitHub."
+                    "Build passed. Opening Pull Request."
                 )
                 
                 evidence_path = MISSIONS_DIR / mission_id
-                repo_url = self._publisher.publish_mission(manifest, str(evidence_path))
+                pr_url = self._publisher.publish_mission(
+                    manifest, 
+                    str(evidence_path),
+                    mission_id=mission_id
+                )
             
             # Determine final status and speech
-            if deploy_url:
-                # Full success: Build + Vercel deployment
+            if deploy_url and pr_url:
+                # Full success: Vercel deployment + PR opened
+                console.print(f"[green][Mission {mission_id[:8]}] LIVE + PR: {pr_url}[/green]")
+                update_mission_status(
+                    mission_id,
+                    "DEPLOYED",
+                    f"Gantry successful. Live at {deploy_url}. PR opened for review."
+                )
+            elif deploy_url:
+                # Vercel only (no GitHub)
                 console.print(f"[green][Mission {mission_id[:8]}] LIVE: {deploy_url}[/green]")
                 update_mission_status(
                     mission_id,
                     "DEPLOYED",
                     f"Gantry successful. Live at {deploy_url}"
                 )
-            elif repo_url:
-                # Partial: Build + GitHub (no Vercel)
-                console.print(f"[green][Mission {mission_id[:8]}] DEPLOYED to GitHub[/green]")
+            elif pr_url:
+                # PR only (no Vercel)
+                console.print(f"[green][Mission {mission_id[:8]}] PR OPENED[/green]")
                 update_mission_status(
                     mission_id,
-                    "DEPLOYED",
-                    f"Gantry successful. Code pushed to GitHub."
+                    "PR_OPENED",
+                    f"Gantry successful. Pull Request opened for your review."
                 )
             else:
                 # Success without any publishing

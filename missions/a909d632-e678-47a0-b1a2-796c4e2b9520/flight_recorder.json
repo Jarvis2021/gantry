@@ -1,0 +1,67 @@
+[
+  {
+    "timestamp": "2026-01-31T17:32:23.123971",
+    "event": "BUILD_STARTED",
+    "details": "SimpleCalculator"
+  },
+  {
+    "timestamp": "2026-01-31T17:32:23.128729",
+    "event": "MANIFEST_SAVED",
+    "details": "/Users/pramod/Documents/Development/Learning/Github/gantry/missions/a909d632-e678-47a0-b1a2-796c4e2b9520/manifest.json"
+  },
+  {
+    "timestamp": "2026-01-31T17:32:23.129685",
+    "event": "POD_INIT",
+    "details": null
+  },
+  {
+    "timestamp": "2026-01-31T17:32:23.156858",
+    "event": "IMAGE_READY",
+    "details": "gantry/builder:latest"
+  },
+  {
+    "timestamp": "2026-01-31T17:32:23.245044",
+    "event": "POD_SPAWNED",
+    "details": "8547fa6f190d"
+  },
+  {
+    "timestamp": "2026-01-31T17:32:23.251152",
+    "event": "FILES_INJECTED",
+    "details": "4"
+  },
+  {
+    "timestamp": "2026-01-31T17:32:23.251488",
+    "event": "DEPS_INSTALL_STARTED",
+    "details": "requirements.txt"
+  },
+  {
+    "timestamp": "2026-01-31T17:32:23.410645",
+    "event": "DEPS_INSTALL_WARNING",
+    "details": "error: externally-managed-environment\n\n\u00d7 This environment is externally managed\n\u2570\u2500> To install Python packages system-wide, try apt install\n    python3-xyz, where xyz is the package you are trying to\n"
+  },
+  {
+    "timestamp": "2026-01-31T17:32:23.411103",
+    "event": "AUDIT_STARTED",
+    "details": "python3 -m venv venv && . venv/bin/activate && pip install -r requirements.txt && pytest"
+  },
+  {
+    "timestamp": "2026-01-31T17:32:25.379248",
+    "event": "AUDIT_PASSED",
+    "details": null
+  },
+  {
+    "timestamp": "2026-01-31T17:32:25.379275",
+    "event": "BUILD_COMPLETE",
+    "details": "Duration: 2.3s"
+  },
+  {
+    "timestamp": "2026-01-31T17:32:25.379291",
+    "event": "DEPLOY_STARTED",
+    "details": "Vercel"
+  },
+  {
+    "timestamp": "2026-01-31T17:32:34.661157",
+    "event": "DEPLOY_COMPLETE",
+    "details": "https://workspace-lqam5jmfp-pramodvoolas-projects.vercel.app"
+  }
+]
