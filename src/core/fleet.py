@@ -18,7 +18,6 @@
 import os
 import threading
 import time
-import traceback
 
 from rich.console import Console
 
@@ -281,6 +280,36 @@ class FleetManager:
                     else:
                         console.print(
                             f"[red][Mission {mission_id[:8]}] Deployment self-repair exhausted[/red]"
+                        )
+
+                except Exception as e:
+                    # EXPANDED: Catch ALL other exceptions and attempt self-healing
+                    progress.stop()
+                    import traceback
+
+                    error_trace = traceback.format_exc()
+                    console.print(
+                        f"[yellow][Mission {mission_id[:8]}] Unexpected error on attempt {attempt}: {e}[/yellow]"
+                    )
+
+                    if attempt < MAX_RETRIES:
+                        error_context = f"Build failed with unexpected error:\n{error_trace}"
+                        self._heal_and_retry(
+                            mission_id, architect, manifest, error_context, attempt, "Build"
+                        )
+
+                        try:
+                            manifest = architect.heal_blueprint(manifest, error_context)
+                            console.print(
+                                f"[cyan][Mission {mission_id[:8]}] Fix received for unexpected error, retrying...[/cyan]"
+                            )
+                        except ArchitectError:
+                            console.print(
+                                f"[red][Mission {mission_id[:8]}] Self-repair for unexpected error failed[/red]"
+                            )
+                    else:
+                        console.print(
+                            f"[red][Mission {mission_id[:8]}] Self-repair exhausted for unexpected error[/red]"
                         )
 
             # Check if mission ultimately succeeded

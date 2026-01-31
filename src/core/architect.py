@@ -139,6 +139,65 @@ package.json:
 - **Game**: Canvas or DOM-based, score tracking, animations
 - **Form App**: Input validation, success/error messages, submissions
 
+=== CRUD OPERATIONS (For Apps Needing Data Storage) ===
+When user requests an app with login, user data, or persistent storage:
+
+1. **Use localStorage for Client-Side Storage**:
+```javascript
+const db = {
+  save: (key, data) => localStorage.setItem(key, JSON.stringify(data)),
+  load: (key) => JSON.parse(localStorage.getItem(key) || '[]'),
+  delete: (key) => localStorage.removeItem(key)
+};
+```
+
+2. **User Authentication (Simple)**:
+```javascript
+const auth = {
+  users: () => db.load('users'),
+  register: (email, pass) => {
+    const users = auth.users();
+    if (users.find(u => u.email === email)) return { error: 'User exists' };
+    users.push({ email, pass: btoa(pass), created: Date.now() });
+    db.save('users', users);
+    return { success: true };
+  },
+  login: (email, pass) => {
+    const user = auth.users().find(u => u.email === email && u.pass === btoa(pass));
+    if (user) { sessionStorage.setItem('user', email); return { success: true }; }
+    return { error: 'Invalid credentials' };
+  },
+  logout: () => sessionStorage.removeItem('user'),
+  current: () => sessionStorage.getItem('user')
+};
+```
+
+3. **CRUD Operations Template**:
+```javascript
+const crud = {
+  items: () => db.load('items'),
+  create: (item) => { const all = crud.items(); all.push({...item, id: Date.now()}); db.save('items', all); },
+  read: (id) => crud.items().find(i => i.id === id),
+  update: (id, data) => { const all = crud.items().map(i => i.id === id ? {...i, ...data} : i); db.save('items', all); },
+  delete: (id) => { const all = crud.items().filter(i => i.id !== id); db.save('items', all); }
+};
+```
+
+4. **Always include tests for CRUD operations**:
+```javascript
+// tests/index.test.js
+const assert = (c, m) => { if (!c) throw new Error(m); };
+
+// Test CRUD
+let items = [];
+items.push({ id: 1, name: 'Test' });
+assert(items.length === 1, 'Create failed');
+items = items.filter(i => i.id !== 1);
+assert(items.length === 0, 'Delete failed');
+
+console.log('All CRUD tests passed');
+```
+
 === TESTING REQUIREMENTS (MANDATORY) ===
 
 EVERY app MUST include tests with 90% coverage:
