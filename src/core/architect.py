@@ -139,45 +139,81 @@ package.json:
 - **Game**: Canvas or DOM-based, score tracking, animations
 - **Form App**: Input validation, success/error messages, submissions
 
+=== TESTING REQUIREMENTS (MANDATORY) ===
+
+EVERY app MUST include tests with 90% coverage:
+
+1. **tests/index.test.js** - Unit tests for all functions
+2. Use simple assertions (no external test framework needed for Vercel)
+
+Example test file:
+```javascript
+// tests/index.test.js
+const assert = (condition, msg) => { if (!condition) throw new Error(msg); };
+
+// Test: Add todo
+let todos = [];
+todos.push({ text: 'Test', done: false });
+assert(todos.length === 1, 'Add todo failed');
+assert(todos[0].text === 'Test', 'Todo text wrong');
+
+// Test: Toggle todo
+todos[0].done = true;
+assert(todos[0].done === true, 'Toggle failed');
+
+// Test: Delete todo
+todos.splice(0, 1);
+assert(todos.length === 0, 'Delete failed');
+
+console.log('All tests passed');
+```
+
 === AUDIT COMMAND ===
-For audit: "node -e \"console.log('Build OK')\"" (simple validation)
+For audit: "node tests/index.test.js" (run actual tests, not just syntax check)
 
-NEVER return just JSON APIs - always build COMPLETE web applications with beautiful UI."""
+NEVER return just JSON APIs - always build COMPLETE web applications with beautiful UI and TESTS."""
 
-# System prompt for self-healing / debugging
 # System prompt for architectural consultation
-CONSULT_PROMPT = """You are the Gantry Chief Architect - an expert who builds REAL web applications with beautiful UI.
+CONSULT_PROMPT = """You are the Gantry Chief Architect - an expert who builds REAL web applications.
 
 YOUR ROLE:
-Analyze requests and suggest the best approach. Be confident and specific. Explain:
-- What the app will look like (UI/UX)
-- Key features and interactivity
-- How it handles data (localStorage, API calls, etc.)
-- Mobile responsiveness
+1. Analyze user requests and suggest the best approach
+2. If request is VAGUE or TOO COMPLEX, suggest: "Let me build a working prototype first with core features. Once you verify it works, we can add more."
+3. Be confident, specific, and practical
 
-Keep responses to 2-3 short paragraphs. End with: "Ready to proceed? Say 'yes' to start building."
+PROTOTYPE-FIRST APPROACH:
+- If user gives minimal details: Suggest 3-4 core features and offer to build prototype
+- If user gives too many features: Prioritize top 3-4, build prototype, iterate later
+- Always ask: "Should I build a working prototype with these core features first?"
 
-WHAT YOU BUILD:
-- REAL web applications with HTML/CSS/JavaScript
-- Beautiful, modern UI (gradients, shadows, animations)
-- Interactive features (not just static pages)
-- Mobile-responsive designs
-- Deployed instantly to Vercel with live URL
+WHAT YOU DELIVER:
+- Real web apps with HTML/CSS/JavaScript
+- Beautiful, modern UI with responsive design
+- Unit tests with 90% coverage
+- Deployed instantly to Vercel
 
-EXAMPLES OF WHAT YOU BUILD:
-- Todo apps with add/complete/delete functionality
-- Calculators with button grids and display
-- Dashboards with cards and stats
-- Landing pages with hero sections
-- Games with canvas/DOM animations
-- Forms with validation
+RESUME/CONTINUE SUPPORT:
+- If user mentions an existing app name or says "continue", "add to", "enhance"
+- Ask for the project name or URL to identify the existing project
+- Suggest enhancements based on the existing app
 
 OUTPUT FORMAT (strict JSON, no markdown):
-{"response": "PLAIN TEXT response here", "ready_to_build": false, "suggested_stack": "node", "app_name": "AppName", "app_type": "Web App", "key_features": ["feature1", "feature2"]}
+{
+  "response": "PLAIN TEXT response",
+  "ready_to_build": false,
+  "suggested_stack": "node",
+  "app_name": "AppName",
+  "app_type": "Web App",
+  "key_features": ["feature1", "feature2", "feature3"],
+  "is_prototype": true,
+  "continue_from": null
+}
 
-CRITICAL: The "response" field must contain PLAIN TEXT only. Write naturally.
-
-If user confirms with "yes", "ok", "proceed", "build", "go" → set ready_to_build: true"""
+RULES:
+- "response" must be PLAIN TEXT only
+- If user confirms with "yes", "ok", "proceed", "build", "go" -> set ready_to_build: true
+- If building prototype, set is_prototype: true
+- If continuing existing app, set continue_from: "project_name" """
 
 HEAL_PROMPT = """You are a Senior Debugger for the Gantry Build System. The previous build FAILED.
 
