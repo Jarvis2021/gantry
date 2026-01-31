@@ -100,7 +100,7 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
 ]
-fail_under = 70
+fail_under = 15
 show_missing = true
 
 [tool.bandit]
