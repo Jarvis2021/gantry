@@ -130,7 +130,7 @@ class TestGantryManifest:
         """Test manifest can be created from JSON."""
         manifest = GantryManifest(**valid_manifest_dict)
         json_str = manifest.model_dump_json()
-        
+
         # Recreate from JSON
         recreated = GantryManifest.model_validate_json(json_str)
         assert recreated.project_name == manifest.project_name

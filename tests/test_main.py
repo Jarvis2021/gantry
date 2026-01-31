@@ -21,12 +21,11 @@ class TestHealthEndpoint:
     @patch("src.core.fleet.Architect")
     @patch("src.core.fleet.Publisher")
     @patch("src.core.fleet.PolicyGate")
-    def test_health_returns_ok(
-        self, mock_policy, mock_pub, mock_arch, mock_foundry, mock_init_db
-    ):
+    def test_health_returns_ok(self, mock_policy, mock_pub, mock_arch, mock_foundry, mock_init_db):
         """Health endpoint should return status."""
         with patch.dict(os.environ, {"BEDROCK_API_KEY": "test"}):
             from src.main import app
+
             client = app.test_client()
             response = client.get("/health")
             assert response.status_code == 200
@@ -48,6 +47,7 @@ class TestAuthEndpoint:
         """Auth should reject wrong password."""
         with patch.dict(os.environ, {"BEDROCK_API_KEY": "test", "GANTRY_PASSWORD": "correct"}):
             from src.main import app
+
             client = app.test_client()
             response = client.post("/gantry/auth", json={"password": "wrong"})
             assert response.status_code == 401
@@ -67,9 +67,10 @@ class TestMissionsEndpoint:
     ):
         """Missions endpoint should return response with missions."""
         mock_list.return_value = []
-        
+
         with patch.dict(os.environ, {"BEDROCK_API_KEY": "test"}):
             from src.main import app
+
             client = app.test_client()
             response = client.get("/gantry/missions")
             assert response.status_code == 200
@@ -87,12 +88,11 @@ class TestStaticFiles:
     @patch("src.core.fleet.Architect")
     @patch("src.core.fleet.Publisher")
     @patch("src.core.fleet.PolicyGate")
-    def test_index_html_served(
-        self, mock_policy, mock_pub, mock_arch, mock_foundry, mock_init_db
-    ):
+    def test_index_html_served(self, mock_policy, mock_pub, mock_arch, mock_foundry, mock_init_db):
         """Root should serve index.html."""
         with patch.dict(os.environ, {"BEDROCK_API_KEY": "test"}):
             from src.main import app
+
             client = app.test_client()
             response = client.get("/")
             assert response.status_code == 200
