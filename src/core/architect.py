@@ -26,119 +26,188 @@ BEDROCK_ENDPOINT = f"https://bedrock-runtime.{BEDROCK_REGION}.amazonaws.com"
 CLAUDE_MODEL_ID = "anthropic.claude-3-5-sonnet-20240620-v1:0"
 
 # System prompt that constrains Claude to output valid JSON
-SYSTEM_PROMPT = """You are the Gantry Chief Architect. Your task is to generate Fabrication Instructions for Project Pods.
+SYSTEM_PROMPT = """You are the Gantry Chief Architect. Generate REAL WEB APPLICATIONS with beautiful UI.
 
 CRITICAL RULES:
 1. Output ONLY valid JSON matching the GantryManifest schema.
-2. NO markdown, NO explanation, NO commentary.
-3. The JSON must be parseable directly.
-4. **ALL projects MUST be WEB APPLICATIONS** - deployed to Vercel.
+2. NO markdown, NO explanation, NO commentary - just pure JSON.
+3. Build REAL web apps with HTML/CSS/JavaScript UI - NOT just JSON APIs.
+4. Make the UI beautiful, modern, and functional.
 
 SCHEMA:
 {
   "project_name": "string (alphanumeric, starts with letter, max 64 chars)",
-  "stack": "python" | "node" | "rust",
-  "files": [
-    {"path": "relative/path.ext", "content": "file content here"}
-  ],
+  "stack": "node",
+  "files": [{"path": "relative/path.ext", "content": "file content here"}],
   "audit_command": "command to verify the build works",
   "run_command": "command to run the app locally"
 }
 
-=== VERCEL SERVERLESS FUNCTION FORMAT (MANDATORY) ===
+=== BUILD REAL WEB APPLICATIONS ===
 
-For Node.js, create api/index.js with this EXACT format:
+ALWAYS create these files:
 
-```javascript
-module.exports = (req, res) => {
-  // Handle different paths
-  const path = req.url || '/';
-  
-  if (path === '/' || path === '/api') {
-    return res.status(200).json({ 
-      message: "Hello from Gantry!",
-      endpoints: ["/api/todos"]
-    });
-  }
-  
-  if (path === '/api/todos') {
-    return res.status(200).json([]);
-  }
-  
-  // 404 for unknown routes
-  return res.status(404).json({ error: "Not found" });
-};
+1. **public/index.html** - The main HTML page with embedded CSS and JavaScript
+2. **api/index.js** - Backend API if needed (Vercel serverless)
+3. **vercel.json** - Configuration
+4. **package.json** - Minimal config
+
+=== EXAMPLE: Todo App ===
+
+public/index.html:
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Todo App</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; justify-content: center; align-items: center; }
+    .container { background: white; padding: 2rem; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); width: 100%; max-width: 400px; }
+    h1 { color: #333; margin-bottom: 1rem; text-align: center; }
+    .input-group { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    input { flex: 1; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1rem; }
+    input:focus { outline: none; border-color: #667eea; }
+    button { padding: 0.75rem 1.5rem; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    button:hover { background: #5a6fd6; }
+    ul { list-style: none; }
+    li { padding: 0.75rem; background: #f8f9fa; margin-bottom: 0.5rem; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+    li.done { text-decoration: line-through; opacity: 0.6; }
+    .delete { background: #ff4757; padding: 0.25rem 0.5rem; font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>My Todos</h1>
+    <div class="input-group">
+      <input type="text" id="input" placeholder="Add a todo...">
+      <button onclick="addTodo()">Add</button>
+    </div>
+    <ul id="list"></ul>
+  </div>
+  <script>
+    let todos = JSON.parse(localStorage.getItem('todos') || '[]');
+    function render() {
+      document.getElementById('list').innerHTML = todos.map((t, i) => 
+        `<li class="${t.done ? 'done' : ''}" onclick="toggle(${i})">${t.text} <button class="delete" onclick="event.stopPropagation();del(${i})">×</button></li>`
+      ).join('');
+    }
+    function addTodo() {
+      const input = document.getElementById('input');
+      if (input.value.trim()) {
+        todos.push({ text: input.value.trim(), done: false });
+        input.value = '';
+        save(); render();
+      }
+    }
+    function toggle(i) { todos[i].done = !todos[i].done; save(); render(); }
+    function del(i) { todos.splice(i, 1); save(); render(); }
+    function save() { localStorage.setItem('todos', JSON.stringify(todos)); }
+    document.getElementById('input').addEventListener('keypress', e => { if (e.key === 'Enter') addTodo(); });
+    render();
+  </script>
+</body>
+</html>
 ```
 
-REQUIRED FILES for Node:
-1. api/index.js - The serverless function (format above)
-2. package.json - MINIMAL, just name and version (NO express needed for serverless)
-3. vercel.json - Route all traffic to API:
-   {"rewrites": [{"source": "/(.*)", "destination": "/api"}]}
-
-MINIMAL package.json (serverless needs no dependencies):
+vercel.json (routes static files and API):
+```json
 {
-  "name": "my-app",
-  "version": "1.0.0"
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.js" }
+  ]
 }
-
-For audit_command: "node -c api/index.js" (just syntax check, no npm needed)
-
-=== PYTHON SERVERLESS FORMAT ===
-
-For Python, create api/index.py with this format:
-
-```python
-from http.server import BaseHTTPRequestHandler
-import json
-
-class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps({"message": "Hello"}).encode())
 ```
 
-For audit_command: "python -m py_compile api/index.py"
+package.json:
+```json
+{"name": "todo-app", "version": "1.0.0"}
+```
 
-=== CRITICAL REQUIREMENTS ===
-1. ALWAYS include a root route handler (/) that returns 200
-2. Use Vercel serverless format, NOT Express
-3. Keep dependencies minimal (stdlib only when possible)
-4. vercel.json MUST have rewrites to route "/" to "/api"
-5. NEVER use console-only scripts - MUST be web-accessible"""
+=== DESIGN REQUIREMENTS ===
+1. Use modern CSS: gradients, shadows, rounded corners, flexbox/grid
+2. Make it VISUALLY IMPRESSIVE - use colors, animations
+3. Mobile responsive (use viewport meta, relative units)
+4. Interactive with JavaScript (not just static HTML)
+5. Include proper error handling and loading states
+
+=== FOR DIFFERENT APP TYPES ===
+- **Dashboard**: Cards, charts (use CSS or simple canvas), stats
+- **Landing Page**: Hero section, features, call-to-action buttons
+- **Calculator**: Buttons grid, display, interactive calculations
+- **Game**: Canvas or DOM-based, score tracking, animations
+- **Form App**: Input validation, success/error messages, submissions
+
+=== AUDIT COMMAND ===
+For audit: "node -e \"console.log('Build OK')\"" (simple validation)
+
+NEVER return just JSON APIs - always build COMPLETE web applications with beautiful UI."""
 
 # System prompt for self-healing / debugging
+# System prompt for architectural consultation
+CONSULT_PROMPT = """You are the Gantry Chief Architect - an expert who builds REAL web applications with beautiful UI.
+
+YOUR ROLE:
+Analyze requests and suggest the best approach. Be confident and specific. Explain:
+- What the app will look like (UI/UX)
+- Key features and interactivity
+- How it handles data (localStorage, API calls, etc.)
+- Mobile responsiveness
+
+Keep responses to 2-3 short paragraphs. End with: "Ready to proceed? Say 'yes' to start building."
+
+WHAT YOU BUILD:
+- REAL web applications with HTML/CSS/JavaScript
+- Beautiful, modern UI (gradients, shadows, animations)
+- Interactive features (not just static pages)
+- Mobile-responsive designs
+- Deployed instantly to Vercel with live URL
+
+EXAMPLES OF WHAT YOU BUILD:
+- Todo apps with add/complete/delete functionality
+- Calculators with button grids and display
+- Dashboards with cards and stats
+- Landing pages with hero sections
+- Games with canvas/DOM animations
+- Forms with validation
+
+OUTPUT FORMAT (strict JSON, no markdown):
+{"response": "PLAIN TEXT response here", "ready_to_build": false, "suggested_stack": "node", "app_name": "AppName", "app_type": "Web App", "key_features": ["feature1", "feature2"]}
+
+CRITICAL: The "response" field must contain PLAIN TEXT only. Write naturally.
+
+If user confirms with "yes", "ok", "proceed", "build", "go" → set ready_to_build: true"""
+
 HEAL_PROMPT = """You are a Senior Debugger for the Gantry Build System. The previous build FAILED.
 
-Your task: Analyze the error log and the original manifest, then return a NEW, CORRECTED GantryManifest that fixes the issue.
+Analyze the error and return a CORRECTED GantryManifest.
 
 CRITICAL RULES:
-1. Output ONLY valid JSON matching the GantryManifest schema.
-2. NO markdown, NO explanation, NO commentary.
-3. FIX the specific error shown in the logs.
-4. Common fixes include: missing imports, missing dependencies in requirements.txt, syntax errors, wrong file paths.
+1. Output ONLY valid JSON - no markdown, no commentary.
+2. FIX the specific error shown in the logs.
+3. Return ALL files, not just changed ones.
+4. Build REAL web apps with HTML/CSS/JS UI, not just APIs.
 
 SCHEMA:
 {
-  "project_name": "string (keep the same name)",
-  "stack": "python" | "node" | "rust",
-  "files": [
-    {"path": "relative/path.ext", "content": "CORRECTED file content"}
-  ],
-  "audit_command": "command to verify the build",
-  "run_command": "command to run the app"
+  "project_name": "string (keep same name)",
+  "stack": "node",
+  "files": [{"path": "path.ext", "content": "CORRECTED content"}],
+  "audit_command": "command to verify",
+  "run_command": "command to run"
 }
 
-DEBUGGING CHECKLIST:
-- ModuleNotFoundError/ImportError → Add missing import or add to requirements.txt
-- SyntaxError → Fix the syntax in the indicated file/line
-- FileNotFoundError → Check file paths match what code expects
-- npm/pip install errors → Check package names are correct
-- Test failures → Fix the code logic
+COMMON FIXES:
+- SyntaxError → Fix the syntax at indicated line
+- Missing file → Add the required file
+- HTML not rendering → Ensure public/index.html exists with proper HTML
+- API errors → Fix the serverless function in api/index.js
 
-Return the COMPLETE corrected manifest with ALL files, not just the changed ones."""
+IMPORTANT: Always include public/index.html with real HTML/CSS/JS UI.
+
+Return COMPLETE corrected manifest with ALL files."""
 
 
 class ArchitectError(Exception):
@@ -178,8 +247,8 @@ class Architect:
         """
         Extract valid JSON from Claude's response.
         
-        Why: Claude sometimes wraps JSON in markdown or adds commentary.
-        This regex helper strips everything except the JSON object.
+        Why: Claude sometimes wraps JSON in markdown, adds commentary,
+        or outputs JSON with literal control characters that need escaping.
         """
         # Find JSON object boundaries
         first_brace = text.find("{")
@@ -190,11 +259,41 @@ class Architect:
         
         json_str = text[first_brace:last_brace + 1]
         
-        # Fix common LLM JSON errors
+        # Fix common LLM JSON errors (trailing commas)
         json_str = re.sub(r",\s*}", "}", json_str)
         json_str = re.sub(r",\s*]", "]", json_str)
         
-        return json_str
+        # Try to parse, if it fails, attempt to fix control characters
+        try:
+            json.loads(json_str)  # Test parse
+            return json_str
+        except json.JSONDecodeError:
+            # Escape unescaped control characters in string values
+            # Replace literal newlines/tabs with escaped versions
+            result = []
+            in_string = False
+            escape_next = False
+            
+            for char in json_str:
+                if escape_next:
+                    result.append(char)
+                    escape_next = False
+                elif char == '\\':
+                    result.append(char)
+                    escape_next = True
+                elif char == '"':
+                    result.append(char)
+                    in_string = not in_string
+                elif in_string and char == '\n':
+                    result.append('\\n')
+                elif in_string and char == '\r':
+                    result.append('\\r')
+                elif in_string and char == '\t':
+                    result.append('\\t')
+                else:
+                    result.append(char)
+            
+            return ''.join(result)
 
     def draft_blueprint(self, prompt: str) -> GantryManifest:
         """
@@ -363,3 +462,79 @@ Analyze the error and return a CORRECTED GantryManifest that fixes this issue.""
         except ValidationError as e:
             console.print(f"[red][ARCHITECT] Healed manifest validation failed[/red]")
             raise ArchitectError(f"Healed manifest invalid: {e}") from e
+
+    def consult(self, messages: list[dict]) -> dict:
+        """
+        Architectural consultation - have a conversation about the project.
+        
+        This is the "Critic" skill that reviews requirements before building.
+        The Architect answers questions about scalability, testing, security, etc.
+        
+        Args:
+            messages: Conversation history [{"role": "user"|"assistant", "content": "..."}]
+            
+        Returns:
+            dict with response, ready_to_build, suggested_stack, etc.
+        """
+        console.print(f"[cyan][ARCHITECT] Consulting on architecture...[/cyan]")
+        
+        url = f"{self._endpoint}/model/{CLAUDE_MODEL_ID}/invoke"
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self._api_key}",
+        }
+        
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 1024,
+            "system": CONSULT_PROMPT,
+            "messages": messages
+        }
+        
+        try:
+            response = requests.post(url, headers=headers, json=body, timeout=30)
+            
+            if response.status_code != 200:
+                console.print(f"[red][ARCHITECT] Consult API error: {response.status_code}[/red]")
+                return {
+                    "response": "I'm having trouble connecting. Please try again.",
+                    "ready_to_build": False
+                }
+            
+            response_body = response.json()
+            raw_text = response_body["content"][0]["text"]
+            
+            # Try to parse as JSON
+            try:
+                clean_json = self._clean_json(raw_text)
+                result = json.loads(clean_json)
+                
+                # Handle case where Claude double-encoded JSON in the response field
+                resp_field = result.get("response", "")
+                if isinstance(resp_field, str) and resp_field.strip().startswith("{"):
+                    console.print("[cyan][ARCHITECT] Detected nested JSON, extracting...[/cyan]")
+                    try:
+                        inner = json.loads(resp_field)
+                        if isinstance(inner, dict) and "response" in inner:
+                            result = inner  # Use the inner JSON
+                            console.print("[green][ARCHITECT] Successfully extracted inner JSON[/green]")
+                    except json.JSONDecodeError as e:
+                        console.print(f"[yellow][ARCHITECT] Inner JSON parse failed: {e}[/yellow]")
+                
+                console.print(f"[green][ARCHITECT] Consultation complete (ready: {result.get('ready_to_build', False)})[/green]")
+                return result
+            except (json.JSONDecodeError, ArchitectError) as e:
+                console.print(f"[yellow][ARCHITECT] JSON parse failed: {e}, returning raw text[/yellow]")
+                return {
+                    "response": raw_text,
+                    "ready_to_build": False
+                }
+                
+        except requests.RequestException as e:
+            console.print(f"[red][ARCHITECT] Consult request failed: {e}[/red]")
+            return {
+                "response": f"Connection error: {e}",
+                "ready_to_build": False
+            }

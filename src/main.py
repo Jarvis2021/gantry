@@ -30,6 +30,7 @@ from rich.panel import Panel
 
 from src.core.fleet import FleetManager
 from src.core.db import get_mission, list_missions, init_db
+from src.core.architect import Architect, ArchitectError
 
 console = Console()
 
@@ -38,6 +39,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 app = Flask(__name__, static_folder=str(STATIC_DIR))
 
 # Global Fleet Manager (lazy init)
+# Note: Architect is created per-request to avoid naming conflicts with Flask routes
 fleet: Optional[FleetManager] = None
 
 
@@ -65,14 +67,76 @@ def health_check():
     })
 
 
+@app.route("/gantry/chat", methods=["POST"])
+def chat():
+    """
+    Intelligent architectural consultation endpoint.
+    
+    The Architect reviews requirements, answers questions about scalability,
+    testing, and security, and only triggers a build when user confirms.
+    
+    Input: {"messages": [{"role": "user", "content": "Build me a todo API"}]}
+    Output: {"response": "...", "ready_to_build": true/false, ...}
+    """
+    try:
+        data = request.json
+        if not data or "messages" not in data:
+            return jsonify({
+                "response": "Please provide a messages array.",
+                "ready_to_build": False
+            }), 400
+        
+        messages = data.get("messages", [])
+        if not messages:
+            return jsonify({
+                "response": "No messages provided.",
+                "ready_to_build": False
+            }), 400
+        
+        # Create Architect instance directly to avoid any caching issues
+        try:
+            arch = Architect()
+        except ArchitectError as e:
+            console.print(f"[red][API] Architect init failed: {e}[/red]")
+            return jsonify({
+                "response": "Architect is not available. Please check API key configuration.",
+                "ready_to_build": False
+            }), 503
+        
+        result = arch.consult(messages)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        console.print(f"[red][API] Chat error: {e}[/red]")
+        import traceback
+        console.print(f"[red]{traceback.format_exc()}[/red]")
+        return jsonify({
+            "response": f"Error: {str(e)}",
+            "ready_to_build": False
+        }), 500
+
+
 @app.route("/gantry/architect", methods=["POST"])
 def architect():
     """
     Main endpoint for voice commands.
     
-    Input: {"voice_memo": "Build me a Flask API"}
+    Input: {"voice_memo": "Build me a Flask API", "publish": true}
     Output: 202 with {"status": "queued", "speech": "Copy. Gantry assumes control."}
+    
+    Query params:
+      ?wait=true - Wait for completion (up to 120s) and return final result
+    
+    Body params:
+      voice_memo: The build request (required)
+      deploy: Whether to deploy to Vercel (default: true)
+      publish: Whether to push to GitHub (default: true)
+      
+    For tests/CI, set both deploy and publish to false.
     """
+    import time
+    
     try:
         data = request.json
         if not data:
@@ -90,11 +154,53 @@ def architect():
                 "speech": "Error. No voice memo provided."
             }), 400
         
-        console.print(f"[cyan][API] Voice memo: {voice_memo[:50]}...[/cyan]")
+        # Default to True for real user requests (voice/chat)
+        # Set to False for automated tests
+        deploy = data.get("deploy", True)
+        publish = data.get("publish", True)
+        
+        console.print(f"[cyan][API] Voice memo: {voice_memo[:50]}... (deploy={deploy}, publish={publish})[/cyan]")
         
         # Dispatch to Fleet
-        mission_id = get_fleet().dispatch_mission(voice_memo)
+        mission_id = get_fleet().dispatch_mission(voice_memo, deploy=deploy, publish=publish)
         
+        # Check if caller wants to wait for completion
+        wait_for_result = request.args.get("wait", "").lower() == "true"
+        
+        if wait_for_result:
+            # Poll for completion (max 120 seconds)
+            max_wait = 120
+            poll_interval = 3
+            waited = 0
+            
+            terminal_states = [
+                "SUCCESS", "DEPLOYED", "PR_OPENED", 
+                "FAILED", "BLOCKED", "TIMEOUT", "CRITICAL_FAILURE", "PUBLISH_FAILED"
+            ]
+            
+            while waited < max_wait:
+                time.sleep(poll_interval)
+                waited += poll_interval
+                
+                mission = get_mission(mission_id)
+                if mission and mission.status in terminal_states:
+                    is_success = mission.status in ["SUCCESS", "DEPLOYED", "PR_OPENED"]
+                    return jsonify({
+                        "status": mission.status,
+                        "mission_id": mission_id,
+                        "speech": mission.speech_output or f"Mission {mission.status.lower()}.",
+                        "success": is_success
+                    }), 200 if is_success else 500
+            
+            # Timeout waiting
+            return jsonify({
+                "status": "TIMEOUT",
+                "mission_id": mission_id,
+                "speech": "Build is still running. Check status later.",
+                "success": False
+            }), 202
+        
+        # Async mode - return immediately
         return jsonify({
             "status": "queued",
             "mission_id": mission_id,
@@ -132,6 +238,52 @@ def get_status(mission_id: str):
         "created_at": mission.created_at,
         "speech": mission.speech_output or f"Status: {mission.status}"
     })
+
+
+@app.route("/gantry/latest", methods=["GET"])
+def get_latest_status():
+    """
+    Get the latest mission status - perfect for voice status checks.
+    
+    Just call GET /gantry/latest and Gantry will tell you what's happening.
+    """
+    missions = list_missions(limit=1)
+    
+    if not missions:
+        return jsonify({
+            "status": "idle",
+            "speech": "No active missions. Gantry standing by."
+        })
+    
+    latest = missions[0]
+    
+    # Build a natural speech response based on status
+    status_speech = {
+        "pending": f"Mission in queue. Building {latest.prompt[:30]}.",
+        "running": f"Currently building. {latest.prompt[:30]}. Stand by.",
+        "building": f"Code generation in progress. Stand by.",
+        "deploying": "Deploying to Vercel. Almost there.",
+        "healing": "Build failed. Attempting self-repair.",
+        "success": f"Mission complete. {latest.speech_output or 'Deployment successful.'}",
+        "failed": f"Mission failed. {latest.speech_output or 'Check logs for details.'}",
+    }
+    
+    speech = status_speech.get(latest.status, f"Status: {latest.status}")
+    
+    # Include URL if available in speech_output
+    response = {
+        "mission_id": latest.id,
+        "status": latest.status,
+        "prompt": latest.prompt[:50],
+        "speech": speech
+    }
+    
+    # Extract URL from speech_output if present
+    if latest.speech_output and "http" in latest.speech_output:
+        response["url"] = latest.speech_output.split("http")[-1]
+        response["url"] = "http" + response["url"].split()[0].rstrip(".")
+    
+    return jsonify(response)
 
 
 @app.route("/gantry/missions", methods=["GET"])

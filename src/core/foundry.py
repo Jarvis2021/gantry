@@ -277,13 +277,14 @@ class Foundry:
             self._client.images.pull(image)
             console.print(f"[green][FOUNDRY] Pulled: {image}[/green]")
 
-    def build(self, manifest: GantryManifest, mission_id: str) -> BuildResult:
+    def build(self, manifest: GantryManifest, mission_id: str, deploy: bool = True) -> BuildResult:
         """
         Execute Fabrication Instructions in a Project Pod.
         
         Args:
             manifest: The GantryManifest (Fabrication Instructions).
             mission_id: Mission ID for evidence tracking.
+            deploy: Whether to deploy to Vercel (default True, set False for tests).
             
         Returns:
             BuildResult with audit outcome.
@@ -462,9 +463,12 @@ class Foundry:
                 blackbox.log("STRUCTURE_CHECK_PASSED")
                 console.print("[green][FOUNDRY] Vercel structure check PASSED[/green]")
             
-            # Deploy to Vercel (if configured and using builder image)
+            # Deploy to Vercel (if configured, using builder image, and deploy=True)
             deploy_url = None
-            if self._deployer.is_configured() and self._use_builder_image:
+            if not deploy:
+                console.print("[yellow][FOUNDRY] Vercel deployment skipped (deploy=false)[/yellow]")
+                blackbox.log("DEPLOY_SKIPPED", "deploy=false")
+            elif self._deployer.is_configured() and self._use_builder_image:
                 blackbox.log("DEPLOY_STARTED", "Vercel")
                 try:
                     deploy_url = self._deployer.deploy_mission(container, project_name)

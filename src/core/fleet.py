@@ -10,10 +10,15 @@
 # Progress Updates: Status is pushed every few seconds during long operations.
 # Thread-based concurrency: Each mission runs in its own thread.
 # Audio-first: Every outcome has a speech field for TTS.
+#
+# Environment Variables:
+# - GANTRY_SKIP_PUBLISH=true: Skip GitHub publishing (for tests/CI)
 # -----------------------------------------------------------------------------
 
+import os
 import threading
 import time
+import traceback
 from typing import Optional, Callable
 
 from rich.console import Console
@@ -26,6 +31,9 @@ from src.core.policy import PolicyGate, SecurityViolation
 from src.core.publisher import Publisher, SecurityBlock, PublishError
 
 console = Console()
+
+# Check if publishing should be skipped (for tests/CI)
+SKIP_PUBLISH = os.getenv("GANTRY_SKIP_PUBLISH", "").lower() == "true"
 
 # Self-Healing Configuration
 MAX_RETRIES = 3  # Maximum heal attempts before giving up
@@ -131,7 +139,7 @@ class FleetManager:
             f"{error_type} failed. Self-repair attempt {attempt} of {MAX_RETRIES}."
         )
 
-    def dispatch_mission(self, prompt: str) -> str:
+    def dispatch_mission(self, prompt: str, deploy: bool = True, publish: bool = True) -> str:
         """
         Dispatch a new mission.
         
@@ -140,6 +148,9 @@ class FleetManager:
         
         Args:
             prompt: The voice memo / build request.
+            deploy: Whether to deploy to Vercel (default True, set False for tests).
+            publish: Whether to publish to GitHub (default True for real users,
+                     set False for tests/CI).
             
         Returns:
             Mission ID for tracking.
@@ -147,12 +158,12 @@ class FleetManager:
         # Create DB entry
         mission_id = create_mission(prompt)
         
-        console.print(f"[cyan][FLEET] Mission queued: {mission_id[:8]}[/cyan]")
+        console.print(f"[cyan][FLEET] Mission queued: {mission_id[:8]} (deploy={deploy}, publish={publish})[/cyan]")
         
         # Spawn background thread
         thread = threading.Thread(
             target=self._run_mission,
-            args=(mission_id, prompt),
+            args=(mission_id, prompt, deploy, publish),
             name=f"mission-{mission_id[:8]}",
             daemon=True
         )
@@ -160,7 +171,7 @@ class FleetManager:
         
         return mission_id
 
-    def _run_mission(self, mission_id: str, prompt: str) -> None:
+    def _run_mission(self, mission_id: str, prompt: str, deploy: bool = True, publish: bool = True) -> None:
         """
         Execute the complete mission pipeline with SELF-HEALING.
         
@@ -172,6 +183,8 @@ class FleetManager:
         Args:
             mission_id: The UUID of the mission.
             prompt: The voice memo.
+            deploy: Whether to deploy to Vercel.
+            publish: Whether to publish to GitHub after successful build.
         """
         progress: Optional[ProgressTracker] = None
         
@@ -220,7 +233,7 @@ class FleetManager:
                 progress = ProgressTracker(mission_id, "BUILDING").start()
                 
                 try:
-                    result = self._foundry.build(manifest, mission_id)
+                    result = self._foundry.build(manifest, mission_id, deploy=deploy)
                     progress.stop()
                     console.print(f"[green][Mission {mission_id[:8]}] Build PASSED on attempt {attempt}[/green]")
                     
@@ -266,9 +279,13 @@ class FleetManager:
                 )
                 return
             
-            # Phase 4: Publishing via Pull Request (if configured)
+            # Phase 4: Publishing via Pull Request (if configured and not skipped)
             pr_url = None
-            if self._publisher.is_configured():
+            should_skip = SKIP_PUBLISH or not publish
+            if should_skip:
+                skip_reason = "GANTRY_SKIP_PUBLISH=true" if SKIP_PUBLISH else "publish=false"
+                console.print(f"[yellow][Mission {mission_id[:8]}] Publishing skipped ({skip_reason})[/yellow]")
+            elif self._publisher.is_configured():
                 console.print(f"[cyan][Mission {mission_id[:8]}] Opening Pull Request...[/cyan]")
                 update_mission_status(
                     mission_id,
@@ -278,11 +295,19 @@ class FleetManager:
                 
                 progress = ProgressTracker(mission_id, "PUBLISHING").start()
                 evidence_path = MISSIONS_DIR / mission_id
-                pr_url = self._publisher.publish_mission(
-                    manifest, 
-                    str(evidence_path),
-                    mission_id=mission_id
-                )
+                try:
+                    pr_url = self._publisher.publish_mission(
+                        manifest, 
+                        str(evidence_path),
+                        mission_id=mission_id
+                    )
+                except Exception as pub_err:
+                    progress.stop()
+                    # Log detailed error but don't fail the whole mission
+                    console.print(f"[red][Mission {mission_id[:8]}] Publishing error: {pub_err}[/red]")
+                    console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                    # Continue without PR - build still succeeded
+                    pr_url = None
                 progress.stop()
             
             # Determine final status and speech
@@ -372,9 +397,11 @@ class FleetManager:
         except Exception as e:
             if progress:
                 progress.stop()
+            # Log FULL traceback for debugging
             console.print(f"[red][Mission {mission_id[:8]}] Critical error: {e}[/red]")
+            console.print(f"[dim]{traceback.format_exc()}[/dim]")
             update_mission_status(
                 mission_id,
                 "CRITICAL_FAILURE",
-                "Mission aborted. System error."
+                f"Mission aborted. Error: {str(e)[:100]}"
             )
