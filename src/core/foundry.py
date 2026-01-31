@@ -28,6 +28,7 @@ from docker.models.containers import Container
 from rich.console import Console
 
 from src.domain.models import GantryManifest, StackType
+from src.core.deployer import Deployer, DeploymentError
 
 console = Console()
 
@@ -66,11 +67,6 @@ class FlightLogEntry:
     timestamp: str
     event: str
     details: Optional[str] = None
-
-
-class DeploymentError(Exception):
-    """Raised when Vercel deployment fails."""
-    pass
 
 
 @dataclass 
@@ -168,8 +164,8 @@ class Foundry:
     def __init__(self) -> None:
         """Initialize connection to Docker (via Proxy)."""
         docker_host = os.getenv("DOCKER_HOST")
-        self._vercel_token = os.getenv("VERCEL_TOKEN")
         self._use_builder_image = True  # Use universal builder by default
+        self._deployer = Deployer()  # Vercel deployment handler
         
         if docker_host:
             self._client = docker.DockerClient(base_url=docker_host)
@@ -185,83 +181,12 @@ class Foundry:
         except ImageNotFound:
             console.print(f"[yellow][FOUNDRY] Builder image not found, will use stack-specific images[/yellow]")
             self._use_builder_image = False
-        
-        if self._vercel_token:
-            console.print("[green][FOUNDRY] Vercel deployment enabled[/green]")
-        else:
-            console.print("[yellow][FOUNDRY] VERCEL_TOKEN not set - deployment disabled[/yellow]")
 
     def _get_image(self, stack: StackType) -> str:
         """Get the appropriate Docker image for the build."""
         if self._use_builder_image:
             return BUILDER_IMAGE
         return STACK_IMAGES.get(stack, STACK_IMAGES[StackType.PYTHON])
-
-    def _parse_vercel_url(self, output: str) -> Optional[str]:
-        """
-        Parse the production URL from Vercel CLI output.
-        
-        Vercel outputs URLs in format: https://project-xxx.vercel.app
-        """
-        import re
-        
-        # Look for production URL patterns
-        patterns = [
-            r'Production: (https://[^\s]+)',
-            r'https://[a-zA-Z0-9-]+\.vercel\.app',
-            r'https://[a-zA-Z0-9-]+\.vercel\.app[^\s]*',
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, output)
-            if match:
-                url = match.group(1) if '(' in pattern else match.group(0)
-                return url.strip()
-        
-        return None
-
-    def _deploy_to_vercel(self, container: Container, project_name: str) -> Optional[str]:
-        """
-        Deploy the built project to Vercel.
-        
-        Args:
-            container: The running container with built files
-            project_name: Name for the Vercel project
-            
-        Returns:
-            The production URL if successful, None otherwise
-        """
-        if not self._vercel_token:
-            console.print("[yellow][FOUNDRY] Skipping Vercel deploy (no token)[/yellow]")
-            return None
-        
-        console.print(f"[cyan][FOUNDRY] Deploying to Vercel...[/cyan]")
-        
-        # Run Vercel deploy command
-        deploy_cmd = f"vercel deploy --prod --token {self._vercel_token} --yes --name {project_name.lower()}"
-        
-        exit_code, output = container.exec_run(
-            cmd=["sh", "-c", deploy_cmd],
-            workdir="/workspace",
-            environment={"VERCEL_TOKEN": self._vercel_token}
-        )
-        
-        output_str = output.decode("utf-8") if isinstance(output, bytes) else str(output)
-        
-        if exit_code != 0:
-            # Don't fail the build, just log warning
-            console.print(f"[yellow][FOUNDRY] Vercel deploy warning: {output_str[:200]}[/yellow]")
-            return None
-        
-        # Parse URL from output
-        deploy_url = self._parse_vercel_url(output_str)
-        
-        if deploy_url:
-            console.print(f"[green][FOUNDRY] Deployed: {deploy_url}[/green]")
-        else:
-            console.print(f"[yellow][FOUNDRY] Deploy succeeded but couldn't parse URL[/yellow]")
-        
-        return deploy_url
 
     def _create_tar(self, manifest: GantryManifest) -> bytes:
         """Create in-memory tar archive of all files."""
@@ -454,15 +379,16 @@ class Foundry:
             blackbox.save_audit_pass(output_str)
             blackbox.log("BUILD_COMPLETE", f"Duration: {duration:.1f}s")
             
-            # Deploy to Vercel (if token available)
+            # Deploy to Vercel (if configured and using builder image)
             deploy_url = None
-            if self._vercel_token and self._use_builder_image:
+            if self._deployer.is_configured() and self._use_builder_image:
                 blackbox.log("DEPLOY_STARTED", "Vercel")
-                deploy_url = self._deploy_to_vercel(container, project_name)
-                if deploy_url:
+                try:
+                    deploy_url = self._deployer.deploy_mission(container, project_name)
                     blackbox.log("DEPLOY_COMPLETE", deploy_url)
-                else:
-                    blackbox.log("DEPLOY_SKIPPED", "No URL returned")
+                except DeploymentError as e:
+                    console.print(f"[yellow][FOUNDRY] Deployment warning: {e}[/yellow]")
+                    blackbox.log("DEPLOY_FAILED", str(e))
             
             blackbox.finalize()
             
