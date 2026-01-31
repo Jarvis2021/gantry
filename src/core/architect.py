@@ -63,6 +63,37 @@ Rust:
 IMPORTANT: The base images are minimal (python:3.11-slim, node:20-alpine, rust:1.75-slim).
 If your audit_command needs packages, ALWAYS install them first in the command."""
 
+# System prompt for self-healing / debugging
+HEAL_PROMPT = """You are a Senior Debugger for the Gantry Build System. The previous build FAILED.
+
+Your task: Analyze the error log and the original manifest, then return a NEW, CORRECTED GantryManifest that fixes the issue.
+
+CRITICAL RULES:
+1. Output ONLY valid JSON matching the GantryManifest schema.
+2. NO markdown, NO explanation, NO commentary.
+3. FIX the specific error shown in the logs.
+4. Common fixes include: missing imports, missing dependencies in requirements.txt, syntax errors, wrong file paths.
+
+SCHEMA:
+{
+  "project_name": "string (keep the same name)",
+  "stack": "python" | "node" | "rust",
+  "files": [
+    {"path": "relative/path.ext", "content": "CORRECTED file content"}
+  ],
+  "audit_command": "command to verify the build",
+  "run_command": "command to run the app"
+}
+
+DEBUGGING CHECKLIST:
+- ModuleNotFoundError/ImportError → Add missing import or add to requirements.txt
+- SyntaxError → Fix the syntax in the indicated file/line
+- FileNotFoundError → Check file paths match what code expects
+- npm/pip install errors → Check package names are correct
+- Test failures → Fix the code logic
+
+Return the COMPLETE corrected manifest with ALL files, not just the changed ones."""
+
 
 class ArchitectError(Exception):
     """Raised when the Architect fails to generate a valid manifest."""
@@ -191,3 +222,98 @@ class Architect:
         except ValidationError as e:
             console.print(f"[red][ARCHITECT] Manifest validation failed[/red]")
             raise ArchitectError(f"Manifest validation failed: {e}") from e
+
+    def heal_blueprint(
+        self, 
+        original_manifest: GantryManifest, 
+        error_log: str
+    ) -> GantryManifest:
+        """
+        Self-Healing: Analyze error and generate a fixed manifest.
+        
+        This is the "Repair" skill that makes Gantry agentic.
+        When a build fails, the Architect reads the error and fixes the code.
+        
+        Args:
+            original_manifest: The manifest that failed.
+            error_log: The error output from the failed audit.
+            
+        Returns:
+            A new, corrected GantryManifest.
+            
+        Raises:
+            ArchitectError: If healing fails.
+        """
+        console.print(f"[yellow][ARCHITECT] Self-healing: analyzing failure...[/yellow]")
+        
+        # Build the healing prompt with context
+        healing_request = f"""## FAILED BUILD - NEEDS FIX
+
+### Original Manifest:
+```json
+{json.dumps(original_manifest.model_dump(), indent=2)}
+```
+
+### Error Log:
+```
+{error_log[:2000]}
+```
+
+Analyze the error and return a CORRECTED GantryManifest that fixes this issue."""
+        
+        # Prepare request
+        url = f"{self._endpoint}/model/{CLAUDE_MODEL_ID}/invoke"
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self._api_key}",
+        }
+        
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 4096,
+            "system": HEAL_PROMPT,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": healing_request
+                }
+            ]
+        }
+        
+        try:
+            response = requests.post(url, headers=headers, json=body, timeout=60)
+            
+            if response.status_code != 200:
+                console.print(f"[red][ARCHITECT] Healing API error: {response.status_code}[/red]")
+                raise ArchitectError(f"Healing failed: {response.status_code}")
+            
+            response_body = response.json()
+            raw_text = response_body["content"][0]["text"]
+            
+            console.print("[cyan][ARCHITECT] Healing response received, parsing...[/cyan]")
+            
+        except requests.RequestException as e:
+            console.print(f"[red][ARCHITECT] Healing request failed: {e}[/red]")
+            raise ArchitectError(f"Healing request failed: {e}") from e
+        except (KeyError, IndexError) as e:
+            console.print(f"[red][ARCHITECT] Unexpected healing response[/red]")
+            raise ArchitectError(f"Unexpected response: {e}") from e
+        
+        # Clean and parse JSON
+        try:
+            clean_json = self._clean_json(raw_text)
+            manifest_data = json.loads(clean_json)
+        except json.JSONDecodeError as e:
+            console.print(f"[red][ARCHITECT] Healing JSON parse failed[/red]")
+            raise ArchitectError(f"Invalid healing JSON: {e}") from e
+        
+        # Validate with Pydantic
+        try:
+            healed_manifest = GantryManifest(**manifest_data)
+            console.print(f"[green][ARCHITECT] Healed blueprint ready: {healed_manifest.project_name}[/green]")
+            return healed_manifest
+        except ValidationError as e:
+            console.print(f"[red][ARCHITECT] Healed manifest validation failed[/red]")
+            raise ArchitectError(f"Healed manifest invalid: {e}") from e

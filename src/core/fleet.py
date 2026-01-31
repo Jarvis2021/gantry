@@ -1,8 +1,11 @@
 # -----------------------------------------------------------------------------
-# THE FLEET MANAGER - ORCHESTRATOR
+# THE FLEET MANAGER - ORCHESTRATOR (Self-Healing)
 # -----------------------------------------------------------------------------
-# Responsibility: Orchestrates the complete mission pipeline.
-# Connects: Database -> Architect -> Policy -> Foundry
+# Responsibility: Orchestrates the complete mission pipeline with self-repair.
+# Connects: Database -> Architect -> Policy -> Foundry -> [Heal Loop] -> Deploy
+#
+# Self-Healing: When a build fails, the Architect analyzes the error and
+# generates a fixed manifest. This loop repeats up to MAX_RETRIES times.
 #
 # Thread-based concurrency: Each mission runs in its own thread.
 # Audio-first: Every outcome has a speech field for TTS.
@@ -20,6 +23,9 @@ from src.core.policy import PolicyGate, SecurityViolation
 from src.core.publisher import Publisher, SecurityBlock, PublishError
 
 console = Console()
+
+# Self-Healing Configuration
+MAX_RETRIES = 3  # Maximum heal attempts before giving up
 
 
 class FleetManager:
@@ -81,17 +87,19 @@ class FleetManager:
 
     def _run_mission(self, mission_id: str, prompt: str) -> None:
         """
-        Execute the complete mission pipeline.
+        Execute the complete mission pipeline with SELF-HEALING.
         
-        Runs in background thread. All exceptions caught and logged.
-        Updates DB with status and speech for TTS.
+        When a build fails, the Architect analyzes the error and generates
+        a fixed manifest. This loop repeats up to MAX_RETRIES times.
+        
+        Flow: Draft → Build → [Fail → Heal → Retry] → Deploy
         
         Args:
             mission_id: The UUID of the mission.
             prompt: The voice memo.
         """
         try:
-            # Phase 1: Architecting
+            # Phase 1: Initial Architecting
             console.print(f"[cyan][Mission {mission_id[:8]}] Drafting blueprint...[/cyan]")
             update_mission_status(
                 mission_id, 
@@ -112,20 +120,63 @@ class FleetManager:
             
             self._policy.validate(manifest)
             
-            # Phase 3: Building
-            console.print(f"[cyan][Mission {mission_id[:8]}] Building Pod...[/cyan]")
-            update_mission_status(
-                mission_id,
-                "BUILDING",
-                f"Building {manifest.project_name}."
-            )
+            # Phase 3: Build with Self-Healing Loop
+            attempt = 0
+            build_success = False
+            result = None
+            last_error = None
             
-            result = self._foundry.build(manifest, mission_id)
+            while attempt < MAX_RETRIES and not build_success:
+                attempt += 1
+                
+                console.print(f"[cyan][Mission {mission_id[:8]}] Building Pod (attempt {attempt}/{MAX_RETRIES})...[/cyan]")
+                update_mission_status(
+                    mission_id,
+                    "BUILDING",
+                    f"Building {manifest.project_name}. Attempt {attempt} of {MAX_RETRIES}."
+                )
+                
+                try:
+                    result = self._foundry.build(manifest, mission_id)
+                    build_success = True
+                    console.print(f"[green][Mission {mission_id[:8]}] Build PASSED on attempt {attempt}[/green]")
+                    
+                except AuditFailedError as e:
+                    last_error = e
+                    console.print(f"[yellow][Mission {mission_id[:8]}] Audit failed on attempt {attempt}[/yellow]")
+                    
+                    if attempt < MAX_RETRIES:
+                        # Self-Healing: Ask Architect to fix the code
+                        console.print(f"[yellow][Mission {mission_id[:8]}] Engaging self-repair...[/yellow]")
+                        update_mission_status(
+                            mission_id,
+                            "HEALING",
+                            f"Audit failed. Attempting self-repair {attempt} of {MAX_RETRIES}."
+                        )
+                        
+                        try:
+                            # Pass the error log to the Architect for healing
+                            manifest = architect.heal_blueprint(manifest, e.output)
+                            console.print(f"[cyan][Mission {mission_id[:8]}] Healed blueprint received, retrying...[/cyan]")
+                        except ArchitectError as heal_error:
+                            console.print(f"[red][Mission {mission_id[:8]}] Self-repair failed: {heal_error}[/red]")
+                            # Continue to next attempt anyway
+                    else:
+                        console.print(f"[red][Mission {mission_id[:8]}] Self-repair exhausted after {MAX_RETRIES} attempts[/red]")
             
-            # Check for live deployment URL from Vercel
-            deploy_url = result.deploy_url
+            # Check if build ultimately succeeded
+            if not build_success:
+                update_mission_status(
+                    mission_id,
+                    "FAILED",
+                    f"Mission critical failure. Self-repair exhausted after {MAX_RETRIES} attempts."
+                )
+                return
             
-            # Phase 4: Publishing to GitHub (if configured)
+            # Phase 4: Deployment (only if build succeeded)
+            deploy_url = result.deploy_url if result else None
+            
+            # Phase 5: Publishing to GitHub (if configured)
             repo_url = None
             if self._publisher.is_configured():
                 console.print(f"[cyan][Mission {mission_id[:8]}] Publishing to GitHub...[/cyan]")
@@ -178,14 +229,6 @@ class FleetManager:
                 mission_id,
                 "BLOCKED",
                 "Request denied. Policy violation."
-            )
-            
-        except AuditFailedError as e:
-            console.print(f"[red][Mission {mission_id[:8]}] Audit failed[/red]")
-            update_mission_status(
-                mission_id,
-                "FAILED",
-                "Mission aborted. Check black box."
             )
             
         except BuildTimeoutError:
