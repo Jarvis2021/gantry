@@ -19,10 +19,12 @@ WORKDIR /app
 # - gcc: Required for psycopg2 compilation
 # - libpq-dev: PostgreSQL client library
 # - curl: Health checks
+# - git: For GitHub publishing (PR workflow)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install Python dependencies (layer caching)
