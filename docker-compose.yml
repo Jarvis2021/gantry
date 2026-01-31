@@ -125,7 +125,9 @@ services:
   # CLOUDFLARE TUNNEL (Secure Uplink)
   # ---------------------------------------------------------------------------
   # Exposes Gantry to the internet via Cloudflare's edge network.
+  # Domain: gantryfleet.ai
   # Benefits:
+  # - Persistent URL (api.gantryfleet.ai)
   # - No open ports on your network
   # - Automatic HTTPS
   # - DDoS protection
@@ -134,7 +136,10 @@ services:
   gantry_uplink:
     image: cloudflare/cloudflared:latest
     container_name: gantry_uplink
-    command: tunnel --url http://gantry_core:5000
+    # Use named tunnel with token for persistent domain
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
     networks:
       - gantry_net
     depends_on:

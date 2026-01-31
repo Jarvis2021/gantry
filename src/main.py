@@ -176,6 +176,9 @@ def print_banner() -> None:
 if __name__ == "__main__":
     print_banner()
     
+    # Initialize database
+    init_db()
+    
     # Ensure missions directory exists
     missions_dir = PROJECT_ROOT / "missions"
     missions_dir.mkdir(exist_ok=True)
