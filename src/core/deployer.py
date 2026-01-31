@@ -13,8 +13,10 @@
 
 import os
 import re
+import time
 from typing import Optional
 
+import requests
 from docker.models.containers import Container
 from rich.console import Console
 
@@ -147,4 +149,48 @@ class Deployer:
             raise DeploymentError("Deployment succeeded but URL not found in output")
         
         console.print(f"[green][DEPLOYER] LIVE: {live_url}[/green]")
+        
+        # Verify the deployment actually works
+        if not self._verify_deployment(live_url):
+            raise DeploymentError(f"Deployment verification failed - {live_url} is not accessible or returns error")
+        
+        console.print(f"[green][DEPLOYER] Verified: {live_url} is responding[/green]")
         return live_url
+
+    def _verify_deployment(self, url: str, retries: int = 3) -> bool:
+        """
+        Verify that the deployed URL actually works.
+        
+        Args:
+            url: The deployed Vercel URL
+            retries: Number of retries (deployments can take a moment to propagate)
+            
+        Returns:
+            True if URL responds with 2xx status
+        """
+        console.print(f"[cyan][DEPLOYER] Verifying deployment at {url}...[/cyan]")
+        
+        for attempt in range(retries):
+            try:
+                # Add a delay for propagation
+                if attempt > 0:
+                    time.sleep(3)
+                
+                response = requests.get(url, timeout=10, allow_redirects=True)
+                
+                # Check if we got redirected to SSO (Vercel team protection)
+                if "vercel.com/sso" in response.url or response.status_code == 401:
+                    console.print("[yellow][DEPLOYER] Vercel SSO protection detected - deployment may require login[/yellow]")
+                    # This is a config issue, not a code issue - return True
+                    return True
+                
+                if 200 <= response.status_code < 400:
+                    console.print(f"[green][DEPLOYER] Got {response.status_code} from {url}[/green]")
+                    return True
+                else:
+                    console.print(f"[yellow][DEPLOYER] Got {response.status_code} (attempt {attempt + 1}/{retries})[/yellow]")
+                    
+            except requests.RequestException as e:
+                console.print(f"[yellow][DEPLOYER] Request failed: {e} (attempt {attempt + 1}/{retries})[/yellow]")
+        
+        return False

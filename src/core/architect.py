@@ -32,7 +32,7 @@ CRITICAL RULES:
 1. Output ONLY valid JSON matching the GantryManifest schema.
 2. NO markdown, NO explanation, NO commentary.
 3. The JSON must be parseable directly.
-4. **ALL projects MUST be WEB APPLICATIONS** - they will be deployed to Vercel.
+4. **ALL projects MUST be WEB APPLICATIONS** - deployed to Vercel.
 
 SCHEMA:
 {
@@ -42,54 +42,72 @@ SCHEMA:
     {"path": "relative/path.ext", "content": "file content here"}
   ],
   "audit_command": "command to verify the build works",
-  "run_command": "command to deploy the app"
+  "run_command": "command to run the app locally"
 }
 
-VERCEL DEPLOYMENT REQUIREMENT:
-Every project MUST be a web application accessible via HTTP. Vercel will serve it.
+=== VERCEL SERVERLESS FUNCTION FORMAT (MANDATORY) ===
 
-For Python: Create a Flask or FastAPI app with at least one HTTP route (e.g., GET /).
-For Node: Create an Express server or use Vercel serverless functions.
+For Node.js, create api/index.js with this EXACT format:
 
-STACK GUIDELINES:
-
-Python (Vercel Serverless - REQUIRED):
-- Use the BaseHTTPRequestHandler format for Vercel Python serverless.
-- Include api/index.py with this EXACT format:
-  ```
-  from http.server import BaseHTTPRequestHandler
-  import json
-  import random
+```javascript
+module.exports = (req, res) => {
+  // Handle different paths
+  const path = req.url || '/';
   
-  class handler(BaseHTTPRequestHandler):
-      def do_GET(self):
-          self.send_response(200)
-          self.send_header('Content-type', 'application/json')
-          self.end_headers()
-          data = {"message": "Hello from Gantry!"}
-          self.wfile.write(json.dumps(data).encode())
-          return
-  ```
-- NO requirements.txt needed for basic JSON APIs (only stdlib).
-- Include vercel.json: {"rewrites":[{"source":"/(.*)", "destination":"/api"}]}
-- For audit_command: "python -m py_compile api/index.py"
-- DO NOT use Flask for Vercel. Use BaseHTTPRequestHandler.
+  if (path === '/' || path === '/api') {
+    return res.status(200).json({ 
+      message: "Hello from Gantry!",
+      endpoints: ["/api/todos"]
+    });
+  }
+  
+  if (path === '/api/todos') {
+    return res.status(200).json([]);
+  }
+  
+  // 404 for unknown routes
+  return res.status(404).json({ error: "Not found" });
+};
+```
 
-Node (Express - REQUIRED for web):
-- ALWAYS create an Express web server with HTTP routes.
-- Include api/index.js for Vercel serverless:
-  ```
-  module.exports = (req, res) => {
-    res.status(200).json({ message: "Hello from Gantry!" });
-  };
-  ```
-- Include package.json with dependencies.
-- Include vercel.json if needed.
-- For audit_command: "npm install && node -c api/index.js"
+REQUIRED FILES for Node:
+1. api/index.js - The serverless function (format above)
+2. package.json - MINIMAL, just name and version (NO express needed for serverless)
+3. vercel.json - Route all traffic to API:
+   {"rewrites": [{"source": "/(.*)", "destination": "/api"}]}
 
-IMPORTANT: 
-- The base images are minimal. Install packages first in audit_command.
-- NEVER create console-only scripts. ALWAYS create web-accessible endpoints."""
+MINIMAL package.json (serverless needs no dependencies):
+{
+  "name": "my-app",
+  "version": "1.0.0"
+}
+
+For audit_command: "node -c api/index.js" (just syntax check, no npm needed)
+
+=== PYTHON SERVERLESS FORMAT ===
+
+For Python, create api/index.py with this format:
+
+```python
+from http.server import BaseHTTPRequestHandler
+import json
+
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({"message": "Hello"}).encode())
+```
+
+For audit_command: "python -m py_compile api/index.py"
+
+=== CRITICAL REQUIREMENTS ===
+1. ALWAYS include a root route handler (/) that returns 200
+2. Use Vercel serverless format, NOT Express
+3. Keep dependencies minimal (stdlib only when possible)
+4. vercel.json MUST have rewrites to route "/" to "/api"
+5. NEVER use console-only scripts - MUST be web-accessible"""
 
 # System prompt for self-healing / debugging
 HEAL_PROMPT = """You are a Senior Debugger for the Gantry Build System. The previous build FAILED.

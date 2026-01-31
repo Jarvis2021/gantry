@@ -188,6 +188,70 @@ class Foundry:
             return BUILDER_IMAGE
         return STACK_IMAGES.get(stack, STACK_IMAGES[StackType.PYTHON])
 
+    def _verify_serverless_structure(self, container: Container, manifest: GantryManifest) -> bool:
+        """
+        Verify the project has correct Vercel serverless structure.
+        
+        Checks:
+        1. api/index.js or api/index.py exists
+        2. vercel.json exists with rewrites
+        3. Handler exports correctly
+        
+        Args:
+            container: Running Docker container with the app
+            manifest: The manifest
+            
+        Returns:
+            True if structure is valid, False otherwise
+        """
+        console.print("[cyan][FOUNDRY] Verifying Vercel serverless structure...[/cyan]")
+        
+        # Check required files exist
+        if manifest.stack == StackType.NODE:
+            check_cmd = """
+            if [ -f api/index.js ] && [ -f vercel.json ]; then
+                # Check that api/index.js exports a function
+                if grep -q "module.exports" api/index.js; then
+                    echo "STRUCTURE_VALID"
+                    exit 0
+                else
+                    echo "MISSING_EXPORT: api/index.js must have module.exports"
+                    exit 1
+                fi
+            else
+                echo "MISSING_FILES: Need api/index.js and vercel.json"
+                exit 1
+            fi
+            """
+        elif manifest.stack == StackType.PYTHON:
+            check_cmd = """
+            if [ -f api/index.py ] && [ -f vercel.json ]; then
+                # Check that api/index.py has handler class
+                if grep -q "class handler" api/index.py; then
+                    echo "STRUCTURE_VALID"
+                    exit 0
+                else
+                    echo "MISSING_HANDLER: api/index.py must have 'class handler'"
+                    exit 1
+                fi
+            else
+                echo "MISSING_FILES: Need api/index.py and vercel.json"
+                exit 1
+            fi
+            """
+        else:
+            return True
+        
+        exit_code, output = container.exec_run(
+            cmd=["sh", "-c", check_cmd],
+            workdir="/workspace"
+        )
+        
+        output_str = output.decode("utf-8") if isinstance(output, bytes) else str(output)
+        console.print(f"[dim][FOUNDRY] Structure check: {output_str.strip()}[/dim]")
+        
+        return exit_code == 0 and "STRUCTURE_VALID" in output_str
+
     def _create_tar(self, manifest: GantryManifest) -> bytes:
         """Create in-memory tar archive of all files."""
         tar_buffer = io.BytesIO()
@@ -378,6 +442,25 @@ class Foundry:
             console.print(f"[green][FOUNDRY] Audit PASSED ({duration:.1f}s)[/green]")
             blackbox.save_audit_pass(output_str)
             blackbox.log("BUILD_COMPLETE", f"Duration: {duration:.1f}s")
+            
+            # STRUCTURE CHECK: Verify Vercel serverless format before deploying
+            if manifest.stack in (StackType.NODE, StackType.PYTHON):
+                blackbox.log("STRUCTURE_CHECK_STARTED", "Verifying Vercel format")
+                
+                structure_valid = self._verify_serverless_structure(container, manifest)
+                if not structure_valid:
+                    blackbox.save_audit_fail(-1, "Invalid Vercel serverless structure")
+                    blackbox.log("STRUCTURE_CHECK_FAILED")
+                    blackbox.finalize()
+                    container.remove(force=True)
+                    raise AuditFailedError(
+                        "Vercel structure check failed",
+                        exit_code=-1,
+                        output="Project must have api/index.js (or .py) with proper exports, and vercel.json with rewrites. See Vercel serverless function format."
+                    )
+                
+                blackbox.log("STRUCTURE_CHECK_PASSED")
+                console.print("[green][FOUNDRY] Vercel structure check PASSED[/green]")
             
             # Deploy to Vercel (if configured and using builder image)
             deploy_url = None
