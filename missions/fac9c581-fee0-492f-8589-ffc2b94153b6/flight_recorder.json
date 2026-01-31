@@ -1,0 +1,67 @@
+[
+  {
+    "timestamp": "2026-01-31T17:09:39.743464",
+    "event": "BUILD_STARTED",
+    "details": "GantryLandingPage"
+  },
+  {
+    "timestamp": "2026-01-31T17:09:39.744087",
+    "event": "MANIFEST_SAVED",
+    "details": "/Users/pramod/Documents/Development/Learning/Github/gantry/missions/fac9c581-fee0-492f-8589-ffc2b94153b6/manifest.json"
+  },
+  {
+    "timestamp": "2026-01-31T17:09:39.744609",
+    "event": "POD_INIT",
+    "details": null
+  },
+  {
+    "timestamp": "2026-01-31T17:09:39.774792",
+    "event": "IMAGE_READY",
+    "details": "gantry/builder:latest"
+  },
+  {
+    "timestamp": "2026-01-31T17:09:39.871623",
+    "event": "POD_SPAWNED",
+    "details": "e6bec6e5980b"
+  },
+  {
+    "timestamp": "2026-01-31T17:09:39.877107",
+    "event": "FILES_INJECTED",
+    "details": "2"
+  },
+  {
+    "timestamp": "2026-01-31T17:09:39.877484",
+    "event": "DEPS_INSTALL_STARTED",
+    "details": "package.json"
+  },
+  {
+    "timestamp": "2026-01-31T17:09:41.011537",
+    "event": "DEPS_INSTALLED",
+    "details": null
+  },
+  {
+    "timestamp": "2026-01-31T17:09:41.018714",
+    "event": "AUDIT_STARTED",
+    "details": "npm install && npm test"
+  },
+  {
+    "timestamp": "2026-01-31T17:09:41.453641",
+    "event": "AUDIT_PASSED",
+    "details": null
+  },
+  {
+    "timestamp": "2026-01-31T17:09:41.453654",
+    "event": "BUILD_COMPLETE",
+    "details": "Duration: 1.7s"
+  },
+  {
+    "timestamp": "2026-01-31T17:09:41.453658",
+    "event": "DEPLOY_STARTED",
+    "details": "Vercel"
+  },
+  {
+    "timestamp": "2026-01-31T17:09:56.699314",
+    "event": "DEPLOY_COMPLETE",
+    "details": "https://gantrylandingpage-jxi95vyae-pramodvoolas-projects.vercel.app"
+  }
+]

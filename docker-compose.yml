@@ -1,0 +1,156 @@
+# -----------------------------------------------------------------------------
+# GANTRY FLEET INFRASTRUCTURE
+# -----------------------------------------------------------------------------
+# A secure, 4-service architecture for the voice-activated software factory:
+#
+# 1. docker-proxy: Restricts Docker socket access (least privilege)
+# 2. gantry_db: PostgreSQL database for mission persistence
+# 3. gantry_core: The Fleet Manager (Brain + Body)
+# 4. gantry_uplink: Cloudflare tunnel for secure voice input
+# -----------------------------------------------------------------------------
+
+services:
+  # ---------------------------------------------------------------------------
+  # DOCKER SOCKET PROXY (Security Layer)
+  # ---------------------------------------------------------------------------
+  # Why: Never expose the raw Docker socket. This proxy restricts which
+  # Docker API endpoints are accessible, following least-privilege principle.
+  # ---------------------------------------------------------------------------
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: gantry_docker_proxy
+    environment:
+      # Allow only what Gantry needs
+      - CONTAINERS=1      # List, inspect, create, start, stop containers
+      - IMAGES=1          # Pull images
+      - NETWORKS=1        # Create networks for isolation
+      - EXEC=1            # Execute commands inside containers
+      - POST=1            # Allow POST requests (create operations)
+      # Deny dangerous operations
+      - BUILD=0
+      - COMMIT=0
+      - CONFIGS=0
+      - DISTRIBUTION=0
+      - EVENTS=0
+      - GRPC=0
+      - INFO=0
+      - NODES=0
+      - PLUGINS=0
+      - SECRETS=0
+      - SERVICES=0
+      - SESSION=0
+      - SWARM=0
+      - SYSTEM=0
+      - TASKS=0
+      - VOLUMES=0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - gantry_net
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # POSTGRESQL DATABASE (Mission Persistence)
+  # ---------------------------------------------------------------------------
+  # Stores mission records, audit trails, and speech outputs.
+  # Uses connection pooling for efficiency.
+  # ---------------------------------------------------------------------------
+  gantry_db:
+    image: postgres:15-alpine
+    container_name: gantry_db
+    environment:
+      - POSTGRES_USER=gantry
+      - POSTGRES_PASSWORD=securepass
+      - POSTGRES_DB=gantry_fleet
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - gantry_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gantry -d gantry_fleet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # GANTRY CORE (Fleet Manager)
+  # ---------------------------------------------------------------------------
+  # The brain and body of the system:
+  # - Brain: AWS Bedrock (Claude) for code generation
+  # - Body: Docker (via proxy) for container orchestration
+  #
+  # Uses IAM Default Credential Chain - no hardcoded AWS keys.
+  # ---------------------------------------------------------------------------
+  gantry_core:
+    build: .
+    container_name: gantry_core
+    environment:
+      # Docker connection via proxy (NOT direct socket)
+      - DOCKER_HOST=tcp://docker-proxy:2375
+      # PostgreSQL connection
+      - DB_HOST=gantry_db
+      - DB_PORT=5432
+      - DB_USER=gantry
+      - DB_PASSWORD=securepass
+      - DB_NAME=gantry_fleet
+      # AWS Configuration (IAM Role - no keys!)
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      # Bedrock API Key (for local dev)
+      - BEDROCK_API_KEY=${BEDROCK_API_KEY}
+      # GitHub Publishing
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_USERNAME=${GITHUB_USERNAME}
+      # Vercel Deployment
+      - VERCEL_TOKEN=${VERCEL_TOKEN}
+      # Gantry Configuration
+      - GANTRY_PORT=5000
+      - GANTRY_ENV=production
+    volumes:
+      # Mission artifacts (flight recordings, manifests, audit reports)
+      - ./missions:/app/missions
+      # AWS credentials for local development only (mounted read-only)
+      - ~/.aws:/root/.aws:ro
+    networks:
+      - gantry_net
+    depends_on:
+      docker-proxy:
+        condition: service_started
+      gantry_db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # CLOUDFLARE TUNNEL (Secure Uplink)
+  # ---------------------------------------------------------------------------
+  # Exposes Gantry to the internet via Cloudflare's edge network.
+  # Benefits:
+  # - No open ports on your network
+  # - Automatic HTTPS
+  # - DDoS protection
+  # - Works behind NAT/firewalls
+  # ---------------------------------------------------------------------------
+  gantry_uplink:
+    image: cloudflare/cloudflared:latest
+    container_name: gantry_uplink
+    command: tunnel --url http://gantry_core:5000
+    networks:
+      - gantry_net
+    depends_on:
+      - gantry_core
+    restart: unless-stopped
+
+# -----------------------------------------------------------------------------
+# NETWORKS
+# -----------------------------------------------------------------------------
+networks:
+  gantry_net:
+    driver: bridge
+
+# -----------------------------------------------------------------------------
+# VOLUMES
+# -----------------------------------------------------------------------------
+volumes:
+  pgdata:
+    driver: local

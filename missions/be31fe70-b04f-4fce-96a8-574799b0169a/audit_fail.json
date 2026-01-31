@@ -1,0 +1,6 @@
+{
+  "timestamp": "2026-01-31T16:16:28.384368",
+  "verdict": "FAIL",
+  "exit_code": 127,
+  "output": "sh: 1: pytest: not found\n"
+}

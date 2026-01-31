@@ -1,0 +1,49 @@
+# -----------------------------------------------------------------------------
+# GANTRY SECURITY POLICY
+# -----------------------------------------------------------------------------
+# The Gatekeeper's rulebook. Any manifest that violates these rules
+# is rejected before reaching the Foundry.
+#
+# "Access Denied" - The Gatekeeper
+# -----------------------------------------------------------------------------
+
+# Allowed technology stacks
+allowed_stacks:
+  - python
+  - node
+  - rust
+
+# Forbidden code patterns (regex)
+# If ANY of these patterns appear in file content, the manifest is REJECTED.
+forbidden_patterns:
+  # Destructive filesystem operations
+  - "rm -rf"
+  - "mkfs"
+  
+  # Fork bomb
+  - ":\\(\\)\\{ :\\|:& \\};:"
+  
+  # Shell command injection vectors
+  - "os\\.system\\s*\\("
+  - "subprocess\\.call\\s*\\("
+  - "subprocess\\.run\\s*\\([^)]*shell\\s*=\\s*True"
+  
+  # Dynamic code execution
+  - "eval\\s*\\("
+  - "exec\\s*\\("
+  - "__import__\\s*\\("
+  
+  # Sensitive file access
+  - "open\\s*\\([^)]*['\"]\/etc"
+  - "open\\s*\\([^)]*['\"]\/var\\/run"
+  
+  # Network backdoors
+  - "reverse.*shell"
+  - "bind.*shell"
+  
+  # Crypto mining
+  - "stratum\\+tcp"
+  - "xmrig"
+
+# Maximum number of files per manifest
+max_files: 10

@@ -1,0 +1,221 @@
+# -----------------------------------------------------------------------------
+# GIT INFRASTRUCTURE - GitHub Integration
+# -----------------------------------------------------------------------------
+# Responsibility: Execute Git operations for publishing code to GitHub.
+# Uses subprocess for lean, direct git command execution.
+#
+# Security:
+# - PAT tokens are passed securely via URL encoding
+# - Tokens are NEVER logged in plain text
+# - Git config uses token only for remote operations
+# -----------------------------------------------------------------------------
+
+import os
+import subprocess
+from pathlib import Path
+from typing import Optional
+
+from rich.console import Console
+
+console = Console()
+
+
+class GitError(Exception):
+    """Raised when a Git operation fails."""
+    pass
+
+
+class GitProvider:
+    """
+    Lean Git operations wrapper using subprocess.
+    
+    Why subprocess over gitpython:
+    - No additional dependency
+    - Direct control over commands
+    - Easier to debug in containers
+    """
+
+    def __init__(self, workspace_path: str) -> None:
+        """
+        Initialize Git provider with workspace path.
+        
+        Args:
+            workspace_path: Path to the directory to be versioned.
+        """
+        self._workspace = Path(workspace_path)
+        self._token: Optional[str] = None
+        self._username: Optional[str] = None
+        self._repo_name: Optional[str] = None
+        
+        if not self._workspace.exists():
+            raise GitError(f"Workspace does not exist: {workspace_path}")
+        
+        console.print(f"[cyan][GIT] Workspace: {self._workspace}[/cyan]")
+
+    def _run(self, cmd: list, capture_output: bool = True, check: bool = True) -> subprocess.CompletedProcess:
+        """
+        Run a git command in the workspace.
+        
+        Args:
+            cmd: Command parts (e.g., ["git", "init"])
+            capture_output: Capture stdout/stderr
+            check: Raise on non-zero exit
+            
+        Returns:
+            CompletedProcess result
+            
+        Raises:
+            GitError: If command fails and check=True
+        """
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=self._workspace,
+                capture_output=capture_output,
+                text=True,
+                timeout=60  # 1 minute timeout for git operations
+            )
+            
+            if check and result.returncode != 0:
+                # Sanitize error output to remove any token traces
+                error_msg = self._sanitize_output(result.stderr or result.stdout or "Unknown error")
+                raise GitError(f"Git command failed: {error_msg}")
+            
+            return result
+            
+        except subprocess.TimeoutExpired:
+            raise GitError("Git operation timed out (60s limit)")
+        except subprocess.SubprocessError as e:
+            raise GitError(f"Git subprocess error: {e}")
+
+    def _sanitize_output(self, text: str) -> str:
+        """Remove any sensitive data from output before logging."""
+        if self._token and self._token in text:
+            text = text.replace(self._token, "[REDACTED]")
+        return text
+
+    def init_repo(self) -> None:
+        """
+        Initialize a new Git repository.
+        
+        Runs: git init
+        """
+        console.print("[cyan][GIT] Initializing repository...[/cyan]")
+        self._run(["git", "init"])
+        
+        # Configure default branch name
+        self._run(["git", "branch", "-M", "main"], check=False)
+        
+        console.print("[green][GIT] Repository initialized[/green]")
+
+    def configure_user(self, name: str = "Gantry Bot", email: str = "gantry@localhost") -> None:
+        """
+        Configure Git user for commits.
+        
+        Args:
+            name: Committer name
+            email: Committer email
+        """
+        self._run(["git", "config", "user.name", name])
+        self._run(["git", "config", "user.email", email])
+        console.print(f"[cyan][GIT] Configured user: {name}[/cyan]")
+
+    def configure_auth(self, token: str, username: str, repo_name: str) -> None:
+        """
+        Configure remote origin with Personal Access Token.
+        
+        Security: Token is embedded in URL for HTTPS auth.
+        The token is stored in instance but NEVER logged.
+        
+        Args:
+            token: GitHub Personal Access Token
+            username: GitHub username
+            repo_name: Repository name (e.g., "my-project")
+        """
+        self._token = token
+        self._username = username
+        self._repo_name = repo_name
+        
+        # Build authenticated remote URL
+        # Format: https://<token>@github.com/<username>/<repo>.git
+        remote_url = f"https://{token}@github.com/{username}/{repo_name}.git"
+        
+        # Remove existing remote if present
+        self._run(["git", "remote", "remove", "origin"], check=False)
+        
+        # Add authenticated remote
+        self._run(["git", "remote", "add", "origin", remote_url])
+        
+        # Log without exposing token
+        safe_url = f"https://[REDACTED]@github.com/{username}/{repo_name}.git"
+        console.print(f"[cyan][GIT] Remote configured: {safe_url}[/cyan]")
+
+    def commit_and_push(self, branch: str = "main", message: str = "Gantry Auto-Deploy") -> str:
+        """
+        Stage all files, commit, and push to remote.
+        
+        Args:
+            branch: Target branch name
+            message: Commit message
+            
+        Returns:
+            The repository URL (public, without token)
+            
+        Raises:
+            GitError: If any git operation fails
+        """
+        console.print("[cyan][GIT] Staging files...[/cyan]")
+        
+        # Stage all files
+        self._run(["git", "add", "-A"])
+        
+        # Check if there's anything to commit
+        status = self._run(["git", "status", "--porcelain"])
+        if not status.stdout.strip():
+            console.print("[yellow][GIT] Nothing to commit[/yellow]")
+            return self._get_repo_url()
+        
+        # Commit
+        console.print(f"[cyan][GIT] Committing: {message}[/cyan]")
+        self._run(["git", "commit", "-m", message])
+        
+        # Push with force to handle initial push
+        console.print(f"[cyan][GIT] Pushing to {branch}...[/cyan]")
+        self._run(["git", "push", "-u", "origin", branch, "--force"])
+        
+        repo_url = self._get_repo_url()
+        console.print(f"[green][GIT] Pushed successfully: {repo_url}[/green]")
+        
+        return repo_url
+
+    def _get_repo_url(self) -> str:
+        """Get public repository URL (without token)."""
+        if self._username and self._repo_name:
+            return f"https://github.com/{self._username}/{self._repo_name}"
+        return "https://github.com"
+
+    def add_gitignore(self, patterns: list = None) -> None:
+        """
+        Create a .gitignore file with common patterns.
+        
+        Args:
+            patterns: List of patterns to ignore
+        """
+        default_patterns = [
+            "__pycache__/",
+            "*.pyc",
+            ".env",
+            "node_modules/",
+            ".DS_Store",
+            "*.log",
+            "venv/",
+            ".venv/",
+        ]
+        
+        patterns = patterns or default_patterns
+        gitignore_path = self._workspace / ".gitignore"
+        
+        with open(gitignore_path, "w") as f:
+            f.write("\n".join(patterns))
+        
+        console.print("[cyan][GIT] Created .gitignore[/cyan]")

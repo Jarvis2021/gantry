@@ -1,0 +1,16 @@
+{
+  "project_name": "PythonHelloWorld",
+  "stack": "python",
+  "files": [
+    {
+      "path": "app.py",
+      "content": "def hello():\n    return \"Hello, World!\"\n\nif __name__ == \"__main__\":\n    print(hello())"
+    },
+    {
+      "path": "test_app.py",
+      "content": "from app import hello\n\ndef test_hello():\n    assert hello() == \"Hello, World!\""
+    }
+  ],
+  "audit_command": "pytest",
+  "run_command": "python app.py"
+}

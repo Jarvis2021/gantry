@@ -1,0 +1,46 @@
+# -----------------------------------------------------------------------------
+# GANTRY .gitignore
+# -----------------------------------------------------------------------------
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Environment & Secrets (CRITICAL - Never commit these!)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# AWS credentials (should never be in repo)
+aws/credentials
+aws/config
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+logs/

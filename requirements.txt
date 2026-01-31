@@ -1,0 +1,8 @@
+flask
+docker
+rich
+pydantic
+boto3
+psycopg2-binary
+python-dotenv
+requests

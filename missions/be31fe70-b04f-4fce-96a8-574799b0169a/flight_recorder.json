@@ -1,0 +1,47 @@
+[
+  {
+    "timestamp": "2026-01-31T16:16:28.177169",
+    "event": "BUILD_STARTED",
+    "details": "PythonHelloWorld"
+  },
+  {
+    "timestamp": "2026-01-31T16:16:28.177745",
+    "event": "MANIFEST_SAVED",
+    "details": "/Users/pramod/Documents/Development/Learning/Github/gantry/missions/be31fe70-b04f-4fce-96a8-574799b0169a/manifest.json"
+  },
+  {
+    "timestamp": "2026-01-31T16:16:28.178114",
+    "event": "POD_INIT",
+    "details": null
+  },
+  {
+    "timestamp": "2026-01-31T16:16:28.209660",
+    "event": "IMAGE_READY",
+    "details": "python:3.11-slim"
+  },
+  {
+    "timestamp": "2026-01-31T16:16:28.333233",
+    "event": "POD_SPAWNED",
+    "details": "c12e7f004701"
+  },
+  {
+    "timestamp": "2026-01-31T16:16:28.338655",
+    "event": "FILES_INJECTED",
+    "details": "2"
+  },
+  {
+    "timestamp": "2026-01-31T16:16:28.339179",
+    "event": "AUDIT_STARTED",
+    "details": "pytest"
+  },
+  {
+    "timestamp": "2026-01-31T16:16:28.384600",
+    "event": "AUDIT_FAILED",
+    "details": "Exit code: 127"
+  },
+  {
+    "timestamp": "2026-01-31T16:16:28.384606",
+    "event": "BUILD_FAILED",
+    "details": null
+  }
+]

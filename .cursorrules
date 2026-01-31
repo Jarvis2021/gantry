@@ -1,0 +1,123 @@
+# -----------------------------------------------------------------------------
+# PROJECT IDENTITY: GANTRY (The "Fleet" Protocol)
+# -----------------------------------------------------------------------------
+# Core Concept:
+# Gantry is a headless, voice-activated software factory. It allows a Chief Architect
+# (driving) to spin up ephemeral "Project Pods" (Docker containers) to build,
+# audit, and deploy software artifacts without touching a keyboard.
+#
+# The Gantry Guarantee (Zero-Trust):
+# 1. "No Touch" Build: Code is generated and run inside isolated Project Pods.
+# 2. "Green Light" Deploy: Code is only pushed if the Critic Agent passes audits.
+# 3. "Black Box" Evidence: Every mission records a cryptographic audit trail.
+#
+# Technical Stack:
+# - Brain: AWS Bedrock (Claude 3.5 Sonnet) via IAM Roles.
+# - Body: Docker (via Secure Proxy).
+# - Uplink: Cloudflare Tunnel.
+# - Storage: PostgreSQL (Connection Pooled).
+# -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+# 1. SECURITY & SAFETY (NON-NEGOTIABLE)
+# -----------------------------------------------------------------------------
+- PROXY PROTOCOL:
+  - NEVER connect to `/var/run/docker.sock` directly.
+  - ALWAYS connect via `tcp://docker-proxy:2375`.
+- DEAD MAN'S SWITCH:
+  - Every Project Pod must have a hard TTL (180 seconds).
+  - If a build hangs, the Watchdog thread must kill it.
+- IAM AUTHENTICATION:
+  - Do NOT use hardcoded AWS keys. Use the Default Credential Chain.
+- **SECRETS POLICY (CRITICAL)**:
+  - NEVER commit secrets, API keys, tokens, or credentials to git.
+  - NEVER reference user's work profiles, account IDs, or employer details.
+  - NEVER include AWS account numbers, profile names, or ARNs in committed code.
+  - ALL sensitive values MUST use placeholders (e.g., YOUR_API_KEY, YOUR_PROFILE).
+  - Store secrets ONLY in .env files (which are gitignored).
+  - Before ANY git commit, scan for: API keys, tokens, account IDs, profile names.
+
+# -----------------------------------------------------------------------------
+# 2. HEADLESS UX (DRIVER SAFETY)
+# -----------------------------------------------------------------------------
+- AUDIO FEEDBACK:
+  - Every API response must include a `speech` field for TTS.
+  - Keep speech concise: "Gantry copying. Pod launched." (Not verbose).
+
+# -----------------------------------------------------------------------------
+# 3. CODING STANDARDS
+# -----------------------------------------------------------------------------
+- Use `pydantic` for all Manifests.
+- Use `psycopg2` with `SimpleConnectionPool` for Database.
+- Use `rich` for all console output.
+- Wrap all external calls (AWS/Docker) in try/except blocks.
+
+# -----------------------------------------------------------------------------
+# 4. HEADLESS PROTOCOL (DRIVER SAFETY)
+# -----------------------------------------------------------------------------
+- AUDIO FIRST: Every API response MUST include a `speech` field with concise,
+  natural language text for TTS engines (e.g., iOS Shortcuts).
+- BLACK BOX LOGGING:
+  - Every mission MUST create a dedicated folder: `missions/{mission_id}/`.
+  - REQUIRED ARTIFACTS: `flight_recording.json`, `manifest.json`, `audit_report.json`.
+  - The system must write these files *even if the mission fails*.
+
+# -----------------------------------------------------------------------------
+# 5. RESOURCE SAFETY (DEAD MAN'S SWITCH)
+# -----------------------------------------------------------------------------
+- TIME-TO-LIVE (TTL):
+  - Sibling containers must ALWAYS be spawned with a strict timeout or be
+    monitored by a watchdog thread.
+  - HARD LIMIT: 180 seconds (3 minutes) per build. Kill the container if exceeded.
+- RESOURCE LIMITS:
+  - Docker containers must specify `mem_limit="512m"` to prevent memory leaks.
+
+# -----------------------------------------------------------------------------
+# 6. CLOUD SECURITY (AWS IAM)
+# -----------------------------------------------------------------------------
+- NO LONG-TERM KEYS:
+  - Do NOT use `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` environment variables.
+  - Rely on the EC2/Container Instance Role (Default Credential Provider Chain).
+  - Initialize boto3 clients simply as `boto3.client("bedrock-runtime", region_name="us-east-1")`
+    without passing explicit keys.
+
+# -----------------------------------------------------------------------------
+# 7. DOCUMENTATION
+# -----------------------------------------------------------------------------
+- Every major module (`architect.py`, `foundry.py`, `fleet.py`) must have a top-level comment describing its responsibility in the Fleet.
+- Update the README.md whenever a new dependency is added.
+- **STRICT: NEVER create new .md files without explicit user approval.** Ask first.
+
+# -----------------------------------------------------------------------------
+# 8. DEPLOYMENT (VERCEL CLI)
+# -----------------------------------------------------------------------------
+- REAL URL REQUIREMENT:
+  - Every successful mission MUST result in a live HTTP endpoint.
+  - Use `vercel-cli` for instant deployments.
+  - COMMAND: `vercel deploy --prod --token $VERCEL_TOKEN --yes`
+  - CAPTURE: The stdout contains the Production URL. Parse it.
+- BUILDER IMAGE:
+  - Use `gantry/builder:latest` for all Project Pods.
+  - Image includes: Python 3.11, Node.js 20, Git, Vercel CLI.
+  - Pass VERCEL_TOKEN securely from host environment.
+
+# -----------------------------------------------------------------------------
+# 9. DEFINITION OF DONE (STRICT ENFORCEMENT)
+# -----------------------------------------------------------------------------
+# A task is NOT complete until ALL of the following are verified:
+#
+- **NO UNTESTED CODE**: Never declare code "complete" or "ready" without running tests.
+- **VERIFY BEFORE CONFIRM**: Execute the code, observe the output, confirm it works.
+- **ALL RULES APPLY**: Every rule in this file must be followed. No exceptions.
+- **SAY "READY" ONLY WHEN TESTED**: The words "done", "complete", or "ready" are 
+  FORBIDDEN until tests have passed and functionality is confirmed.
+#
+# Workflow Checklist (Must complete in order):
+# 1. Write/modify code following all standards above.
+# 2. Run linter checks (read_lints).
+# 3. Execute tests or manual verification.
+# 4. Observe output and confirm expected behavior.
+# 5. ONLY THEN may you declare the task complete.
+#
+# If testing is not possible (e.g., requires external service), explicitly state:
+# "PENDING VERIFICATION: [reason]" — never claim completion.

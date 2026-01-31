@@ -1,0 +1,67 @@
+[
+  {
+    "timestamp": "2026-01-31T17:07:33.687059",
+    "event": "BUILD_STARTED",
+    "details": "NodeHelloWorld"
+  },
+  {
+    "timestamp": "2026-01-31T17:07:33.687343",
+    "event": "MANIFEST_SAVED",
+    "details": "/Users/pramod/Documents/Development/Learning/Github/gantry/missions/d0eb3228-1e35-44d5-80e7-9e0a0536ca2a/manifest.json"
+  },
+  {
+    "timestamp": "2026-01-31T17:07:33.687651",
+    "event": "POD_INIT",
+    "details": null
+  },
+  {
+    "timestamp": "2026-01-31T17:07:33.711148",
+    "event": "IMAGE_READY",
+    "details": "gantry/builder:latest"
+  },
+  {
+    "timestamp": "2026-01-31T17:07:33.808909",
+    "event": "POD_SPAWNED",
+    "details": "ed81290c04f6"
+  },
+  {
+    "timestamp": "2026-01-31T17:07:33.814534",
+    "event": "FILES_INJECTED",
+    "details": "2"
+  },
+  {
+    "timestamp": "2026-01-31T17:07:33.814881",
+    "event": "DEPS_INSTALL_STARTED",
+    "details": "package.json"
+  },
+  {
+    "timestamp": "2026-01-31T17:07:33.962563",
+    "event": "DEPS_INSTALLED",
+    "details": null
+  },
+  {
+    "timestamp": "2026-01-31T17:07:33.963110",
+    "event": "AUDIT_STARTED",
+    "details": "npm install && npm test"
+  },
+  {
+    "timestamp": "2026-01-31T17:07:35.186109",
+    "event": "AUDIT_PASSED",
+    "details": null
+  },
+  {
+    "timestamp": "2026-01-31T17:07:35.186141",
+    "event": "BUILD_COMPLETE",
+    "details": "Duration: 1.5s"
+  },
+  {
+    "timestamp": "2026-01-31T17:07:35.186152",
+    "event": "DEPLOY_STARTED",
+    "details": "Vercel"
+  },
+  {
+    "timestamp": "2026-01-31T17:07:45.384081",
+    "event": "DEPLOY_COMPLETE",
+    "details": "https://nodehelloworld-dyphmbm3g-pramodvoolas-projects.vercel.app"
+  }
+]

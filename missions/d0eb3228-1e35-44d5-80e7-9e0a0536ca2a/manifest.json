@@ -1,0 +1,16 @@
+{
+  "project_name": "NodeHelloWorld",
+  "stack": "node",
+  "files": [
+    {
+      "path": "package.json",
+      "content": "{\n  \"name\": \"node-hello-world\",\n  \"version\": \"1.0.0\",\n  \"description\": \"A simple Node.js hello world web server\",\n  \"main\": \"server.js\",\n  \"scripts\": {\n    \"start\": \"node server.js\",\n    \"test\": \"node server.js & pid=$!; sleep 1; curl -s http://localhost:3000; kill $pid\"\n  },\n  \"dependencies\": {}\n}"
+    },
+    {
+      "path": "server.js",
+      "content": "const http = require('http');\n\nconst server = http.createServer((req, res) => {\n  res.statusCode = 200;\n  res.setHeader('Content-Type', 'text/plain');\n  res.end('Hello, World!');\n});\n\nconst port = 3000;\nserver.listen(port, () => {\n  console.log(`Server running at http://localhost:${port}/`);\n});\n"
+    }
+  ],
+  "audit_command": "npm install && npm test",
+  "run_command": "npm start"
+}
