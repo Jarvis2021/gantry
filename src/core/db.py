@@ -242,6 +242,87 @@ def list_missions(limit: int = 50) -> list[MissionRecord]:
         ]
 
 
+def search_missions(keywords: list[str], limit: int = 5) -> list[MissionRecord]:
+    """
+    Search for missions containing any of the keywords.
+
+    Used for the resume/continue feature to find similar apps.
+
+    Args:
+        keywords: List of keywords to search for in prompt.
+        limit: Maximum number of missions to return.
+
+    Returns:
+        List of matching MissionRecord objects.
+    """
+    if not keywords:
+        return []
+
+    with get_connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
+        # Build ILIKE conditions for each keyword
+        conditions = " OR ".join(["prompt ILIKE %s" for _ in keywords])
+        params = [f"%{kw}%" for kw in keywords]
+        params.append(limit)
+
+        cursor.execute(
+            f"""
+                SELECT * FROM missions 
+                WHERE status = 'DEPLOYED' AND ({conditions})
+                ORDER BY created_at DESC 
+                LIMIT %s
+                """,
+            params,
+        )
+        rows = cursor.fetchall()
+
+        return [
+            MissionRecord(
+                id=str(row["id"]),
+                prompt=row["prompt"],
+                status=row["status"],
+                speech_output=row["speech_output"],
+                created_at=row["created_at"].isoformat() if row["created_at"] else None,
+                updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
+            )
+            for row in rows
+        ]
+
+
+def get_mission_by_name(project_name: str) -> MissionRecord | None:
+    """
+    Get mission by project name (extracted from prompt).
+
+    Args:
+        project_name: The project name to search for.
+
+    Returns:
+        MissionRecord if found, None otherwise.
+    """
+    with get_connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
+        cursor.execute(
+            """
+                SELECT * FROM missions 
+                WHERE prompt ILIKE %s AND status = 'DEPLOYED'
+                ORDER BY created_at DESC 
+                LIMIT 1
+                """,
+            (f"%{project_name}%",),
+        )
+        row = cursor.fetchone()
+
+        if not row:
+            return None
+
+        return MissionRecord(
+            id=str(row["id"]),
+            prompt=row["prompt"],
+            status=row["status"],
+            speech_output=row["speech_output"],
+            created_at=row["created_at"].isoformat() if row["created_at"] else None,
+            updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
+        )
+
+
 def close_pool() -> None:
     """
     Close all connections in the pool.
