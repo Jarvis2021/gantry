@@ -388,9 +388,98 @@
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        /* Login Overlay */
+        .login-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .login-overlay.hidden { display: none; }
+
+        .login-card {
+            background: var(--bg);
+            border-radius: 12px;
+            padding: 24px;
+            width: 320px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .login-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            text-align: center;
+        }
+
+        .login-subtitle {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-align: center;
+            margin-bottom: 16px;
+        }
+
+        .login-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 12px;
+        }
+
+        .login-input:focus {
+            outline: none;
+            border-color: var(--blue);
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 10px;
+            background: var(--blue);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .login-btn:hover { background: var(--blue-hover); }
+        .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .login-error {
+            color: var(--red);
+            font-size: 11px;
+            text-align: center;
+            margin-top: 8px;
+            display: none;
+        }
+
+        .login-error.show { display: block; }
     </style>
 </head>
 <body>
+    <!-- Login Overlay -->
+    <div class="login-overlay" id="loginOverlay">
+        <div class="login-card">
+            <div class="login-title">Gantry Fleet</div>
+            <div class="login-subtitle">Enter your password to continue</div>
+            <input type="password" class="login-input" id="passwordInput" placeholder="Password" autocomplete="current-password">
+            <button class="login-btn" id="loginBtn" onclick="login()">Unlock</button>
+            <div class="login-error" id="loginError">Invalid password. Please try again.</div>
+        </div>
+    </div>
+
     <div class="app">
         <header class="header">
             <div class="brand">
@@ -430,7 +519,7 @@
                         <span class="projects-title">Projects</span>
                         <span class="projects-count" id="projects-count">(0)</span>
                     </div>
-                    <button class="refresh-btn" id="refresh-btn">↻ Refresh</button>
+                    <button class="refresh-btn" id="refresh-btn">Refresh</button>
                 </div>
                 <div class="projects-list" id="projects-list">
                     <div class="empty-state">
@@ -440,9 +529,9 @@
                     </div>
                 </div>
                 <div class="pagination" id="pagination" style="display: none;">
-                    <button class="page-btn" id="prev-btn" disabled>←</button>
+                    <button class="page-btn" id="prev-btn" disabled>Prev</button>
                     <span class="page-info" id="page-info">1 / 1</span>
-                    <button class="page-btn" id="next-btn" disabled>→</button>
+                    <button class="page-btn" id="next-btn" disabled>Next</button>
                 </div>
             </div>
         </div>
@@ -455,6 +544,66 @@
         let allProjects = [];
         let conversationHistory = [];
         let buildPrompt = '';
+        let isAuthenticated = false;
+
+        // Login elements
+        const loginOverlay = document.getElementById('loginOverlay');
+        const passwordInput = document.getElementById('passwordInput');
+        const loginBtn = document.getElementById('loginBtn');
+        const loginError = document.getElementById('loginError');
+
+        // Check auth on load
+        async function checkAuth() {
+            try {
+                const res = await fetch(`${API}/gantry/auth/status`);
+                const data = await res.json();
+                if (data.authenticated) {
+                    isAuthenticated = true;
+                    loginOverlay.classList.add('hidden');
+                }
+            } catch (e) {
+                console.error('Auth check failed:', e);
+            }
+        }
+
+        // Login function
+        async function login() {
+            const password = passwordInput.value.trim();
+            if (!password) return;
+
+            loginBtn.disabled = true;
+            loginBtn.textContent = 'Authenticating...';
+            loginError.classList.remove('show');
+
+            try {
+                const res = await fetch(`${API}/gantry/auth`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                const data = await res.json();
+
+                if (data.authenticated) {
+                    isAuthenticated = true;
+                    loginOverlay.classList.add('hidden');
+                    addMsg('Welcome to Gantry Fleet. You are now authenticated.', false);
+                } else {
+                    loginError.classList.add('show');
+                }
+            } catch (e) {
+                console.error('Login failed:', e);
+                loginError.textContent = 'Connection error. Please try again.';
+                loginError.classList.add('show');
+            } finally {
+                loginBtn.disabled = false;
+                loginBtn.textContent = 'Unlock';
+            }
+        }
+
+        // Enter key to login
+        passwordInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') login();
+        });
 
         const chatMessages = document.getElementById('chat-messages');
         const promptInput = document.getElementById('prompt-input');
@@ -498,10 +647,10 @@
 
         function getStatusText(status) {
             const map = {
-                'DEPLOYED': '● Live', 'SUCCESS': '✓ Done', 'PR_OPENED': '✓ PR',
-                'BUILDING': '◐ Building', 'ARCHITECTING': '◐ Designing', 'VALIDATING': '◐ Testing',
-                'PUBLISHING': '◐ Publishing', 'HEALING': '◐ Fixing', 'PENDING': '○ Queued',
-                'FAILED': '✕ Failed', 'TIMEOUT': '✕ Timeout', 'CRITICAL_FAILURE': '✕ Error', 'BLOCKED': '✕ Blocked'
+                'DEPLOYED': 'Live', 'SUCCESS': 'Done', 'PR_OPENED': 'PR Opened',
+                'BUILDING': 'Building...', 'ARCHITECTING': 'Designing...', 'VALIDATING': 'Testing...',
+                'PUBLISHING': 'Publishing...', 'HEALING': 'Fixing...', 'PENDING': 'Queued',
+                'FAILED': 'Failed', 'TIMEOUT': 'Timeout', 'CRITICAL_FAILURE': 'Error', 'BLOCKED': 'Blocked'
             };
             return map[status.toUpperCase()] || status;
         }
@@ -563,6 +712,19 @@
 
                 removeTypingIndicator();
                 const data = await response.json();
+
+                // Handle auth error
+                if (response.status === 401 || data.needs_auth) {
+                    loginOverlay.classList.remove('hidden');
+                    addMsg('Session expired. Please log in again.', false);
+                    return;
+                }
+
+                // Handle rate limit
+                if (response.status === 429) {
+                    addMsg('Rate limit exceeded. Please wait a moment before trying again.', false);
+                    return;
+                }
 
                 if (data.ready_to_build) {
                     // User confirmed - start building
@@ -708,8 +870,8 @@
                         <div class="project-footer">
                             <span class="status-badge ${statusClass}">${statusText}</span>
                             <div class="project-actions">
-                                ${url ? `<a href="${url}" target="_blank" class="action-link">Live ↗</a>` : ''}
-                                <a href="${githubUrl}" target="_blank" class="action-link">GitHub ↗</a>
+                                ${url ? `<a href="${url}" target="_blank" class="action-link">View Live</a>` : ''}
+                                <a href="${githubUrl}" target="_blank" class="action-link">GitHub</a>
                             </div>
                         </div>
                     </div>
@@ -733,9 +895,9 @@
         });
         
         refreshBtn.addEventListener('click', () => {
-            refreshBtn.textContent = '↻ ...';
+            refreshBtn.textContent = 'Loading...';
             loadProjects().then(() => {
-                refreshBtn.textContent = '↻ Refresh';
+                refreshBtn.textContent = 'Refresh';
             });
         });
         
@@ -749,6 +911,7 @@
         });
 
         // Initial load
+        checkAuth();  // Check if already logged in
         loadProjects();
         
         // Auto-refresh every 10s

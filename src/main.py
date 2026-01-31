@@ -29,6 +29,13 @@ from rich.console import Console
 from rich.panel import Panel
 
 from src.core.architect import Architect, ArchitectError
+from src.core.auth import (
+    authenticate_session,
+    is_authenticated,
+    require_auth,
+    require_guardrails,
+    require_rate_limit,
+)
 from src.core.db import get_mission, init_db, list_missions
 from src.core.fleet import FleetManager
 
@@ -37,6 +44,9 @@ console = Console()
 # Static folder for UI
 STATIC_DIR = Path(__file__).parent / "static"
 app = Flask(__name__, static_folder=str(STATIC_DIR))
+
+# Secret key for sessions (use env var in production)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(24).hex())
 
 # Global Fleet Manager (lazy init)
 # Note: Architect is created per-request to avoid naming conflicts with Flask routes
@@ -65,7 +75,46 @@ def health_check():
     )
 
 
+@app.route("/gantry/auth", methods=["POST"])
+@require_rate_limit
+def auth():
+    """
+    Authentication endpoint.
+    Input: {"password": "your_password"}
+    Output: {"authenticated": true/false}
+    """
+    data = request.json or {}
+    password = data.get("password", "")
+
+    if authenticate_session(password):
+        return jsonify(
+            {
+                "authenticated": True,
+                "speech": "Welcome to Gantry Fleet. You are now authenticated.",
+            }
+        )
+
+    return (
+        jsonify(
+            {
+                "authenticated": False,
+                "speech": "Invalid password. Please try again.",
+            }
+        ),
+        401,
+    )
+
+
+@app.route("/gantry/auth/status", methods=["GET"])
+def auth_status():
+    """Check authentication status."""
+    return jsonify({"authenticated": is_authenticated()})
+
+
 @app.route("/gantry/chat", methods=["POST"])
+@require_rate_limit
+@require_auth
+@require_guardrails
 def chat():
     """
     Intelligent architectural consultation endpoint.
@@ -112,6 +161,8 @@ def chat():
 
 
 @app.route("/gantry/architect", methods=["POST"])
+@require_rate_limit
+@require_auth
 def architect():
     """
     Main endpoint for voice commands.

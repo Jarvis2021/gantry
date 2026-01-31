@@ -26,7 +26,7 @@ jobs:
   # LINT & FORMAT CHECK
   # ---------------------------------------------------------------------------
   lint:
-    name: 🔍 Lint & Format
+    name: Lint and Format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -55,7 +55,7 @@ jobs:
   # UNIT TESTS
   # ---------------------------------------------------------------------------
   test:
-    name: 🧪 Unit Tests
+    name: Unit Tests
     runs-on: ubuntu-latest
     needs: lint
     steps:
@@ -93,7 +93,7 @@ jobs:
   # PYDANTIC MODEL VALIDATION
   # ---------------------------------------------------------------------------
   pydantic-check:
-    name: 📋 Pydantic Models
+    name: Pydantic Models
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -120,18 +120,19 @@ jobs:
               project_name='TestProject',
               stack=StackType.PYTHON,
               files=[file],
-              audit_command='pytest'
+              audit_command='pytest',
+              run_command='python test.py'
           )
-          print(f'✓ GantryManifest validated: {manifest.project_name}')
-          print(f'✓ FileSpec validated: {file.path}')
-          print('✓ All Pydantic models are valid')
+          print('GantryManifest validated: ' + manifest.project_name)
+          print('FileSpec validated: ' + file.path)
+          print('All Pydantic models are valid')
           "
 
   # ---------------------------------------------------------------------------
   # SECURITY SCAN
   # ---------------------------------------------------------------------------
   security:
-    name: 🔒 Security Scan
+    name: Security Scan
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -157,7 +158,7 @@ jobs:
   # DOCKER BUILD TEST
   # ---------------------------------------------------------------------------
   docker:
-    name: 🐳 Docker Build
+    name: Docker Build
     runs-on: ubuntu-latest
     needs: [lint, test]
     steps:
@@ -173,24 +174,24 @@ jobs:
       - name: Verify images
         run: |
           docker images | grep gantry
-          echo "✓ Docker images built successfully"
+          echo "Docker images built successfully"
 
   # ---------------------------------------------------------------------------
   # FINAL QUALITY GATE
   # ---------------------------------------------------------------------------
   quality-gate:
-    name: ✅ Quality Gate
+    name: Quality Gate
     runs-on: ubuntu-latest
     needs: [lint, test, pydantic-check, security, docker]
     steps:
       - name: All checks passed
         run: |
-          echo "╔═══════════════════════════════════════════════════╗"
-          echo "║           ALL QUALITY CHECKS PASSED               ║"
-          echo "║  ✓ Lint & Format                                  ║"
-          echo "║  ✓ Unit Tests                                     ║"
-          echo "║  ✓ Pydantic Models                                ║"
-          echo "║  ✓ Security Scan                                  ║"
-          echo "║  ✓ Docker Build                                   ║"
-          echo "╚═══════════════════════════════════════════════════╝"
-# CI Trigger
+          echo "============================================="
+          echo "         ALL QUALITY CHECKS PASSED          "
+          echo "============================================="
+          echo "  [PASS] Lint and Format"
+          echo "  [PASS] Unit Tests"
+          echo "  [PASS] Pydantic Models"
+          echo "  [PASS] Security Scan"
+          echo "  [PASS] Docker Build"
+          echo "============================================="
