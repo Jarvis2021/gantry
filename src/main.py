@@ -165,9 +165,9 @@ def print_banner() -> None:
 
     ╔═══════════════════════════════════════════════════╗
     ║           GANTRY FLEET ONLINE                     ║
-    ║  • Voice-Activated Software Factory               ║
+    ║  • AI-Powered Software Factory                    ║
+    ║  • Voice & Chat Interface                         ║
     ║  • Zero-Trust Build Pipeline                      ║
-    ║  • Dead Man's Switch (180s TTL)                   ║
     ╚═══════════════════════════════════════════════════╝
     """
     console.print(Panel(banner, border_style="cyan"))

@@ -110,23 +110,13 @@ class Deployer:
         # Sanitize project name for Vercel (lowercase, alphanumeric, hyphens)
         safe_name = re.sub(r'[^a-zA-Z0-9-]', '-', project_name.lower())
         
-        # Step 1: Link project (creates .vercel folder)
-        console.print("[cyan][DEPLOYER] Linking project...[/cyan]")
-        link_cmd = f"vercel link --yes --token {self._token}"
+        # Deploy directly without linking - creates new project with specified name
+        # Using --public flag to ensure the deployment is publicly accessible
+        console.print(f"[cyan][DEPLOYER] Deploying {safe_name} to production...[/cyan]")
         
-        exit_code, output = container.exec_run(
-            cmd=["sh", "-c", link_cmd],
-            workdir="/workspace",
-            environment={"VERCEL_TOKEN": self._token}
-        )
-        
-        # Link might fail for new projects, that's OK - deploy will handle it
-        
-        # Step 2: Deploy to production (with --public for bypass protection)
-        console.print("[cyan][DEPLOYER] Deploying to production...[/cyan]")
-        # Note: --public bypasses deployment protection (if available)
-        # Also skip deployment protection check with environment variable
-        deploy_cmd = f"VERCEL_DEPLOYMENT_PROTECTION_BYPASS=1 vercel deploy --prod --yes --token {self._token} --name {safe_name}"
+        # Build deploy command - let Vercel use default scope
+        # The --public flag makes deployment accessible without authentication
+        deploy_cmd = f"vercel deploy --prod --yes --token {self._token} --name {safe_name} --public"
         
         exit_code, output = container.exec_run(
             cmd=["sh", "-c", deploy_cmd],
