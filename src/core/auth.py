@@ -59,7 +59,9 @@ def _get_password_hash() -> str:
         return hashed
 
     # Default password (for development only)
-    console.print("[yellow][AUTH] Using default password - set GANTRY_PASSWORD in production[/yellow]")
+    console.print(
+        "[yellow][AUTH] Using default password - set GANTRY_PASSWORD in production[/yellow]"
+    )
     return hashlib.sha256(b"password").hexdigest()
 
 
