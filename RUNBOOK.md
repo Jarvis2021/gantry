@@ -1,18 +1,76 @@
 # Gantry Runbook
 
-> Operational guide for setup, configuration, and troubleshooting
+> Operational guide for setup, configuration, and troubleshooting the Gantry Fleet v2.0
+
+---
 
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
-2. [Initial Setup](#initial-setup)
-3. [Cloudflare Tunnel Configuration](#cloudflare-tunnel-configuration)
-4. [Python Environment](#python-environment)
-5. [Docker Configuration](#docker-configuration)
-6. [Database Setup](#database-setup)
+1. [Quick Start](#quick-start)
+2. [Architecture v2.0 Changes](#architecture-v20-changes)
+3. [Prerequisites](#prerequisites)
+4. [Initial Setup](#initial-setup)
+5. [Running Gantry](#running-gantry)
+6. [Cloudflare Tunnel Configuration](#cloudflare-tunnel-configuration)
 7. [Service Credentials](#service-credentials)
 8. [Verification](#verification)
 9. [Troubleshooting](#troubleshooting)
+10. [Production Deployment](#production-deployment)
+
+---
+
+## Quick Start
+
+```bash
+# Clone and setup
+git clone https://github.com/YOUR_USERNAME/gantry.git
+cd gantry
+cp .env.example .env
+# Edit .env with your credentials
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start infrastructure
+docker-compose up -d
+
+# Run Gantry (FastAPI)
+python src/main_fastapi.py
+
+# Open browser
+open http://localhost:5050
+
+# View API docs
+open http://localhost:5050/docs
+```
+
+---
+
+## Architecture v2.0 Changes
+
+If upgrading from v1.0, note these changes:
+
+| Component | v1.0 | v2.0 | Migration |
+|-----------|------|------|-----------|
+| **API** | Flask (`main.py`) | **FastAPI** (`main_fastapi.py`) | Use new entrypoint |
+| **Port** | 5000 | **5050** | Update URLs |
+| **Auth** | `auth.py` | **`auth_v2.py`** | Argon2 hashes |
+| **Fleet** | `fleet.py` | **`fleet_v2.py`** | Same interface |
+| **Real-time** | Polling | **WebSocket `/gantry/ws/{id}`** | Update frontend |
+
+### New Endpoints (v2.0)
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /docs` | OpenAPI documentation |
+| `WS /gantry/ws/{mission_id}` | WebSocket real-time updates |
+
+### New Folders (v2.0)
+
+| Folder | Purpose |
+|--------|---------|
+| `prompts/` | External AI prompts |
+| `src/skills/` | Pluggable skills |
 
 ---
 
@@ -20,21 +78,21 @@
 
 ### Required Software
 
-| Software | Version | Purpose |
-|----------|---------|---------|
-| Docker Desktop | 4.0+ | Container runtime |
-| Python | 3.11+ | Local development |
-| Git | 2.30+ | Version control |
-| curl | Any | API testing |
+| Software | Version | Purpose | Install |
+|----------|---------|---------|---------|
+| Docker Desktop | 4.0+ | Container runtime | [docker.com](https://docker.com) |
+| Python | 3.11+ | API server | [python.org](https://python.org) |
+| Git | 2.30+ | Version control | Pre-installed |
+| curl | Any | API testing | Pre-installed |
 
 ### Required Accounts
 
 | Service | Purpose | Signup |
 |---------|---------|--------|
-| AWS | Bedrock AI access | [aws.amazon.com](https://aws.amazon.com) |
-| Cloudflare | Tunnel for public access | [cloudflare.com](https://cloudflare.com) |
-| Vercel | Deployment hosting | [vercel.com](https://vercel.com) |
-| GitHub | Code publishing | [github.com](https://github.com) |
+| AWS | Bedrock AI (Claude 3.5) | [aws.amazon.com](https://aws.amazon.com) |
+| Cloudflare | Tunnel (optional) | [cloudflare.com](https://cloudflare.com) |
+| Vercel | Deployment | [vercel.com](https://vercel.com) |
+| GitHub | PR publishing | [github.com](https://github.com) |
 
 ---
 
@@ -47,161 +105,106 @@ git clone https://github.com/YOUR_USERNAME/gantry.git
 cd gantry
 ```
 
-### 2. Create Environment File
+### 2. Create Virtual Environment
 
 ```bash
-# Copy template
-cp .env.example .env
-
-# Edit with your values
-nano .env
+python -m venv venv
+source venv/bin/activate  # macOS/Linux
+# OR
+.\venv\Scripts\activate   # Windows
 ```
 
-### 3. Required Environment Variables
+### 3. Install Dependencies
 
 ```bash
-# Bedrock AI (required)
+pip install -r requirements.txt
+```
+
+**New dependencies in v2.0:**
+
+| Package | Purpose |
+|---------|---------|
+| `fastapi` | Async API framework |
+| `uvicorn` | ASGI server |
+| `websockets` | WebSocket support |
+| `argon2-cffi` | Password hashing |
+| `httpx` | Async HTTP client |
+
+### 4. Create Environment File
+
+```bash
+cp .env.example .env
+nano .env  # or your editor
+```
+
+### 5. Required Environment Variables
+
+```bash
+# =============================================================================
+# REQUIRED
+# =============================================================================
+
+# AI Backend
 BEDROCK_API_KEY=your_bedrock_api_key
 BEDROCK_REGION=us-east-1
 
-# Authentication (required)
+# Authentication (Argon2 hashed automatically)
 GANTRY_PASSWORD=your_secure_password
-SECRET_KEY=random-32-character-string
 
-# Database (defaults provided in docker-compose)
+# Database (defaults work with docker-compose)
 DB_HOST=gantry_db
 DB_PORT=5432
 DB_USER=gantry
 DB_PASSWORD=securepass
 DB_NAME=gantry_fleet
 
-# Vercel Deployment (optional but recommended)
+# =============================================================================
+# RECOMMENDED
+# =============================================================================
+
+# Vercel Deployment
 VERCEL_TOKEN=your_vercel_token
 
-# GitHub Publishing (optional but recommended)
+# GitHub Publishing
 GITHUB_TOKEN=your_github_pat
-GITHUB_USERNAME=your_github_username
+GITHUB_USERNAME=your_username
 
-# Cloudflare Tunnel (for public access)
+# =============================================================================
+# OPTIONAL
+# =============================================================================
+
+# Pre-hashed password (production)
+# GANTRY_PASSWORD_HASH=$argon2id$v=19$m=65536...
+
+# Cloudflare Tunnel
 CLOUDFLARE_TUNNEL_TOKEN=your_tunnel_token
+
+# Server port (default: 5050)
+GANTRY_PORT=5050
 ```
 
 ---
 
-## Cloudflare Tunnel Configuration
+## Running Gantry
 
-The tunnel enables secure access from the internet without opening ports.
-
-### Step 1: Create a Tunnel
+### Option 1: Development Mode (Recommended)
 
 ```bash
-# Install cloudflared CLI
-brew install cloudflared
+# Start infrastructure
+docker-compose up -d gantry_db docker-proxy
 
-# Login to Cloudflare
-cloudflared tunnel login
+# Run FastAPI with hot reload
+uvicorn src.main_fastapi:app --reload --port 5050
 
-# Create a new tunnel
-cloudflared tunnel create gantry
-
-# Note the tunnel ID displayed
+# Access
+open http://localhost:5050      # Web UI
+open http://localhost:5050/docs # API docs
 ```
 
-### Step 2: Configure the Tunnel
-
-Create `~/.cloudflared/config.yml`:
-
-```yaml
-tunnel: YOUR_TUNNEL_ID
-credentials-file: ~/.cloudflared/YOUR_TUNNEL_ID.json
-
-ingress:
-  - hostname: api.gantryfleet.ai
-    service: http://gantry_core:5000
-  - service: http_status:404
-```
-
-### Step 3: Add DNS Record
+### Option 2: Full Docker Stack
 
 ```bash
-# Add CNAME pointing to tunnel
-cloudflared tunnel route dns gantry api.gantryfleet.ai
-```
-
-### Step 4: Get Tunnel Token
-
-```bash
-# Generate token for docker-compose
-cloudflared tunnel token gantry
-
-# Copy the token to .env
-CLOUDFLARE_TUNNEL_TOKEN=the_generated_token
-```
-
-### Step 5: Verify Tunnel
-
-```bash
-# Start the tunnel container
-docker-compose up -d gantry_uplink
-
-# Check logs
-docker logs gantry_uplink
-
-# Should see: "Connection registered"
-```
-
----
-
-## Python Environment
-
-### Local Development Setup
-
-```bash
-# Create virtual environment
-python3.11 -m venv venv
-
-# Activate
-source venv/bin/activate  # macOS/Linux
-# venv\Scripts\activate   # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Install dev dependencies
-pip install pytest pytest-cov ruff
-```
-
-### Run Locally (without Docker)
-
-```bash
-# Start PostgreSQL (via Docker)
-docker-compose up -d gantry_db
-
-# Wait for database
-sleep 5
-
-# Run the application
-python src/main.py
-```
-
----
-
-## Docker Configuration
-
-### Build the Images
-
-```bash
-# Build main application
-docker build -t gantry/core:latest .
-
-# Build builder image (for Project Pods)
-docker build -f builder.Dockerfile -t gantry/builder:latest .
-```
-
-### Start All Services
-
-```bash
-# Start everything
+# Start all services
 docker-compose up -d
 
 # Check status
@@ -211,47 +214,74 @@ docker-compose ps
 docker-compose logs -f gantry_core
 ```
 
-### Service Ports
+### Option 3: Direct Python
 
-| Service | Internal Port | External Port |
-|---------|--------------|---------------|
-| gantry_core | 5000 | 5000 |
-| gantry_db | 5432 | - |
-| docker-proxy | 2375 | - |
-| gantry_uplink | - | - |
+```bash
+# Simple start
+python src/main_fastapi.py
+
+# Or with uvicorn options
+uvicorn src.main_fastapi:app --host 0.0.0.0 --port 5050 --workers 4
+```
 
 ---
 
-## Database Setup
+## Cloudflare Tunnel Configuration
 
-### Automatic Migration
+The tunnel enables secure public access without port forwarding.
 
-The database schema is created automatically on startup via `init_db()`.
-
-### Manual Access
+### Step 1: Install cloudflared
 
 ```bash
-# Connect to PostgreSQL
-docker exec -it gantry_db psql -U gantry -d gantry_fleet
+# macOS
+brew install cloudflared
 
-# Common queries
-SELECT id, status, created_at FROM missions ORDER BY created_at DESC LIMIT 10;
-
-# Check table schema
-\d missions
+# Linux
+curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+chmod +x cloudflared
+sudo mv cloudflared /usr/local/bin/
 ```
 
-### Reset Database
+### Step 2: Create Tunnel
 
 ```bash
-# Stop services
-docker-compose down
+# Login to Cloudflare
+cloudflared tunnel login
 
-# Remove volume
-docker volume rm gantry_pgdata
+# Create tunnel
+cloudflared tunnel create gantry
 
-# Restart (recreates schema)
-docker-compose up -d
+# Note the tunnel ID (looks like: abc123-def456-...)
+```
+
+### Step 3: Configure DNS
+
+```bash
+# Add DNS record
+cloudflared tunnel route dns gantry gantry.yourdomain.com
+```
+
+### Step 4: Create Config File
+
+```yaml
+# ~/.cloudflared/config.yml
+tunnel: YOUR_TUNNEL_ID
+credentials-file: /path/to/credentials.json
+
+ingress:
+  - hostname: gantry.yourdomain.com
+    service: http://localhost:5050
+  - service: http_status:404
+```
+
+### Step 5: Run Tunnel
+
+```bash
+# Standalone
+cloudflared tunnel run gantry
+
+# Or via docker-compose (already configured)
+docker-compose up -d gantry_uplink
 ```
 
 ---
@@ -260,102 +290,112 @@ docker-compose up -d
 
 ### AWS Bedrock
 
-1. Go to AWS Console > Bedrock > Model Access
-2. Request access to Claude 3.5 Sonnet
-3. Create API key or use IAM role
-4. Set `BEDROCK_API_KEY` in `.env`
+1. Enable Bedrock in AWS Console
+2. Request Claude 3.5 Sonnet access
+3. Create IAM credentials with Bedrock permissions
+4. Add to `.env`:
+
+```bash
+BEDROCK_API_KEY=AKIAIOSFODNN7EXAMPLE
+```
 
 ### Vercel
 
-1. Go to vercel.com > Settings > Tokens
-2. Create a new token with full access
-3. Set `VERCEL_TOKEN` in `.env`
+1. Go to [vercel.com/account/tokens](https://vercel.com/account/tokens)
+2. Create new token with deploy permissions
+3. Add to `.env`:
+
+```bash
+VERCEL_TOKEN=vercel_token_here
+```
 
 ### GitHub
 
-1. Go to github.com > Settings > Developer Settings > PAT
-2. Create a fine-grained token with:
-   - Repository: All repositories (or specific)
-   - Permissions: Contents (read/write), Pull Requests (read/write)
-3. Set `GITHUB_TOKEN` and `GITHUB_USERNAME` in `.env`
+1. Go to [github.com/settings/tokens](https://github.com/settings/tokens)
+2. Create token with `repo` scope
+3. Add to `.env`:
+
+```bash
+GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+GITHUB_USERNAME=your-username
+```
 
 ---
 
 ## Verification
 
-### Step 1: Health Check
+### 1. Health Check
 
 ```bash
-curl http://localhost:5000/health
-# Expected: {"status": "online", "service": "gantry"}
+curl http://localhost:5050/health
+# {"status":"online","service":"gantry","version":"2.0.0"}
 ```
 
-### Step 2: Authentication
+### 2. API Documentation
 
 ```bash
-# Authenticate
-curl -X POST http://localhost:5000/gantry/auth \
+open http://localhost:5050/docs
+# Should show OpenAPI Swagger UI
+```
+
+### 3. Authentication
+
+```bash
+# Get auth token
+curl -X POST http://localhost:5050/gantry/auth \
   -H "Content-Type: application/json" \
   -d '{"password": "your_password"}'
 
-# Expected: {"authenticated": true}
+# Response:
+# {"authenticated":true,"token":"abc123...","speech":"Welcome..."}
 ```
 
-### Step 3: Test Chat Mode (Consultation)
+### 4. Chat Mode (Consultation)
 
 ```bash
-# Start a conversation with the Architect
-curl -X POST http://localhost:5000/gantry/chat \
+TOKEN="your_token_from_step_3"
+
+curl -X POST http://localhost:5050/gantry/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "messages": [
-      {"role": "user", "content": "Build me a simple calculator"}
+      {"role": "user", "content": "Build me a todo app"}
     ]
   }'
 
-# Expected: {"response": "...", "ready_to_build": false, "suggested_stack": "node", ...}
-
-# The Architect will suggest features and ask for confirmation
-# When you confirm, ready_to_build becomes true
+# Response:
+# {"response":"I can build that!...","ready_to_build":false,...}
 ```
 
-### Step 4: Test Voice Mode (One-Shot Build)
+### 5. Voice Mode (One-Shot Build)
 
 ```bash
-# Dispatch a build directly (skip consultation)
-curl -X POST http://localhost:5000/gantry/architect \
+curl -X POST http://localhost:5050/gantry/architect \
   -H "Content-Type: application/json" \
-  -d '{"voice_memo": "Build a hello world page", "deploy": false, "publish": false}'
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"voice_memo": "Build a calculator with dark mode"}'
 
-# Expected: {"status": "queued", "mission_id": "..."}
+# Response:
+# {"status":"queued","mission_id":"abc-123","speech":"Copy..."}
 ```
 
-### Step 5: Check Status
+### 6. WebSocket (Real-time)
 
-```bash
-curl http://localhost:5000/gantry/status/YOUR_MISSION_ID
-
-# Expected: {"status": "BUILDING", "speech": "..."}
-# Poll until status is DEPLOYED, SUCCESS, or FAILED
+```javascript
+// In browser console or Node.js
+const ws = new WebSocket('ws://localhost:5050/gantry/ws/abc-123');
+ws.onmessage = (e) => console.log(JSON.parse(e.data));
+ws.send('ping');
+// Receive: {"type":"pong"}
 ```
 
-### Step 6: Open Web UI
+### 7. Web UI
 
 ```bash
-open http://localhost:5000
-```
-
-1. Enter your password to login
-2. Start a conversation: "Build me a todo app"
-3. The Architect will suggest features
-4. Confirm to start the build
-5. Watch the Projects panel for progress
-
-### Step 7: Mobile Connection (via Tunnel)
-
-```bash
-curl https://api.gantryfleet.ai/health
-# Should return same as localhost
+open http://localhost:5050
+# Login with your password
+# Start chatting!
 ```
 
 ---
@@ -364,145 +404,199 @@ curl https://api.gantryfleet.ai/health
 
 ### Common Issues
 
-#### 1. "Connection refused" on localhost:5000
+#### "Connection refused" on port 5050
 
-**Cause:** Flask not running or port conflict.
-
-**Solution:**
 ```bash
-# Check if port is in use
-lsof -i :5000
+# Check if server is running
+lsof -i :5050
 
-# Check container logs
-docker logs gantry_core
+# Check logs
+docker-compose logs gantry_core
 
-# Restart the service
-docker-compose restart gantry_core
+# Start manually
+python src/main_fastapi.py
 ```
 
-#### 2. "Database connection failed"
+#### "Module not found" errors
 
-**Cause:** PostgreSQL not ready or credentials wrong.
-
-**Solution:**
 ```bash
-# Check database container
-docker logs gantry_db
+# Ensure virtual environment is active
+source venv/bin/activate
 
-# Verify credentials match .env and docker-compose.yml
-grep DB_ .env
-
-# Test direct connection
-docker exec -it gantry_db pg_isready -U gantry
+# Reinstall dependencies
+pip install -r requirements.txt
 ```
 
-#### 3. "Architect failed" / "BEDROCK_API_KEY not found"
+#### "Argon2 hash mismatch"
 
-**Cause:** Missing or invalid Bedrock credentials.
+Password format changed in v2.0. Reset password:
 
-**Solution:**
 ```bash
-# Verify key is set
-grep BEDROCK .env
+# In .env, use plain password (auto-hashed)
+GANTRY_PASSWORD=new_password
 
-# Test Bedrock access (AWS CLI)
-aws bedrock-runtime invoke-model --model-id anthropic.claude-3-5-sonnet-20240620-v1:0 ...
-
-# Check logs for specific error
-docker logs gantry_core | grep ARCHITECT
+# Or generate Argon2 hash manually
+python -c "from argon2 import PasswordHasher; print(PasswordHasher().hash('your_password'))"
 ```
 
-#### 4. "Tunnel not connecting"
+#### Docker build fails
 
-**Cause:** Invalid tunnel token or DNS not propagated.
-
-**Solution:**
 ```bash
-# Check tunnel logs
-docker logs gantry_uplink
+# Clean up Docker
+docker system prune -a
 
-# Verify token
-cloudflared tunnel info gantry
-
-# Test DNS resolution
-dig api.gantryfleet.ai
-
-# Regenerate token if needed
-cloudflared tunnel token gantry
+# Rebuild
+docker-compose build --no-cache
+docker-compose up -d
 ```
 
-#### 5. "Build timeout" / "Dead Man's Switch triggered"
+#### WebSocket not connecting
 
-**Cause:** Build taking too long (>180s).
+Check CORS and ensure you're using `ws://` not `http://`:
 
-**Solution:**
-- Check if Docker has enough resources
-- Simplify the build request
-- Check container logs for what's hanging
+```javascript
+// Correct
+new WebSocket('ws://localhost:5050/gantry/ws/mission-id')
 
-```bash
-# Find stuck containers
-docker ps | grep gantry_
-
-# Check container logs
-docker logs gantry_MISSION_ID
-
-# Force cleanup
-docker kill gantry_MISSION_ID
+// Wrong
+new WebSocket('http://localhost:5050/gantry/ws/mission-id')
 ```
 
-#### 6. "Vercel deployment failed"
+#### "Rate limit exceeded"
 
-**Cause:** Invalid token, project config, or Vercel limits.
+v2.0 has per-user rate limiting. Wait 60 seconds or:
 
-**Solution:**
 ```bash
-# Verify token
-VERCEL_TOKEN=your_token vercel whoami
-
-# Check project structure in mission folder
-ls -la missions/MISSION_ID/
-
-# Look for vercel.json issues
-cat missions/MISSION_ID/manifest.json | jq '.files[] | select(.path | contains("vercel"))'
+# Restart server to clear rate limits (dev only)
+# In production, this is intentional protection
 ```
 
-#### 7. "GitHub PR creation failed"
+#### Database connection failed
 
-**Cause:** Token permissions, branch issues, or rate limiting.
-
-**Solution:**
 ```bash
-# Test token
-curl -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user
+# Check PostgreSQL is running
+docker-compose ps gantry_db
 
-# Check rate limits
-curl -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/rate_limit
+# Restart database
+docker-compose restart gantry_db
 
-# Verify token has repo scope
-# Must have: Contents (read/write), Pull Requests (read/write)
+# Check connection
+docker-compose exec gantry_db psql -U gantry -d gantry_fleet -c "SELECT 1"
 ```
 
 ### Log Locations
 
-| Log | Location |
-|-----|----------|
-| Flask API | `docker logs gantry_core` |
-| Database | `docker logs gantry_db` |
-| Tunnel | `docker logs gantry_uplink` |
-| Mission Evidence | `missions/{id}/flight_recorder.json` |
-
-### Support
-
-For issues not covered here:
-
-1. Check `missions/{id}/flight_recorder.json` for detailed event log
-2. Search existing GitHub issues
-3. Open a new issue with:
-   - Error message
-   - Relevant log output
-   - Steps to reproduce
+| Service | Log Command |
+|---------|-------------|
+| Gantry Core | `docker-compose logs -f gantry_core` |
+| Database | `docker-compose logs -f gantry_db` |
+| Docker Proxy | `docker-compose logs -f docker-proxy` |
+| Tunnel | `docker-compose logs -f gantry_uplink` |
 
 ---
 
-*Last updated: 2026*
+## Production Deployment
+
+### Pre-deployment Checklist
+
+- [ ] Use strong password (20+ characters)
+- [ ] Pre-hash password with Argon2
+- [ ] Enable HTTPS via Cloudflare
+- [ ] Set up database backups
+- [ ] Configure log aggregation
+- [ ] Set resource limits in Docker
+
+### Environment Variables (Production)
+
+```bash
+# Pre-hashed password (don't store plain text)
+GANTRY_PASSWORD_HASH=$argon2id$v=19$m=65536,t=3,p=4$...
+
+# Disable debug
+DEBUG=false
+
+# Production database
+DB_HOST=your-rds-endpoint.amazonaws.com
+DB_PASSWORD=your_strong_db_password
+
+# All services configured
+VERCEL_TOKEN=...
+GITHUB_TOKEN=...
+CLOUDFLARE_TUNNEL_TOKEN=...
+```
+
+### Docker Production Config
+
+```yaml
+# docker-compose.prod.yml
+services:
+  gantry_core:
+    image: gantry/core:latest
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+    restart: always
+```
+
+### Running in Production
+
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+---
+
+## Monitoring
+
+### Health Endpoint
+
+```bash
+# Use for load balancer health checks
+curl http://localhost:5050/health
+```
+
+### Metrics (Planned)
+
+Prometheus metrics endpoint coming in v2.1:
+
+```bash
+curl http://localhost:5050/metrics
+```
+
+### Logs
+
+```bash
+# Structured JSON logs
+docker-compose logs -f gantry_core | jq .
+```
+
+---
+
+## Backup and Recovery
+
+### Database Backup
+
+```bash
+# Backup
+docker-compose exec gantry_db pg_dump -U gantry gantry_fleet > backup.sql
+
+# Restore
+docker-compose exec -T gantry_db psql -U gantry gantry_fleet < backup.sql
+```
+
+### Mission Evidence
+
+```bash
+# Backup missions folder
+tar -czf missions-backup.tar.gz missions/
+
+# Restore
+tar -xzf missions-backup.tar.gz
+```
+
+---
+
+*Last updated: January 2026 | Gantry v2.0*
