@@ -92,6 +92,11 @@ OUTPUT FORMAT (strict JSON only, no markdown):
   "confidence": 0.0 to 1.0
 }
 
+DATA LAYER / ORM (for "big website" or database requests):
+- We do NOT generate Prisma, Sequelize, Django ORM, or any DB connection in prototypes (no DB is provisioned at build/deploy).
+- For prototypes: we use localStorage + serverless API so the app builds and deploys. User can add a real DB and ORM when taking the repo to production.
+- If user asks for "database", "ORM", or "big website with user accounts": confirm we'll build a working prototype with a simple data layer (localStorage + API) and they can plug in Supabase/PlanetScale later.
+
 FAMOUS APP DESIGN TARGETS:
 - LINKEDIN: Professional network, blue (#0a66c2), three-column layout
 - TWITTER: Microblogging, dark theme, timeline feed

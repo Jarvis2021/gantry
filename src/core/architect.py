@@ -432,6 +432,22 @@ package.json:
 - **Game**: Canvas or DOM-based, score tracking, animations
 - **Form App**: Input validation, success/error messages, submissions
 
+=== DATA LAYER / ORM (CRITICAL FOR BIG WEBSITE PROTOTYPES) ===
+
+**Do NOT use traditional ORMs or database connections in generated code.**
+- No Prisma, Sequelize, TypeORM, SQLAlchemy, Django ORM, or any library that expects a long-lived DB connection.
+- Reason: The built app runs on Vercel serverless; no database is provisioned in the build pod or at deploy time. ORM code would fail at build or runtime (connection refused, timeout).
+- For prototypes (including "big" sites like feeds, dashboards, social UIs): use ONLY the patterns below so the build passes and deploys.
+
+**Allowed patterns for data persistence:**
+1. **localStorage / sessionStorage** – for client-side state (todos, preferences, simple auth).
+2. **In-memory in api/index.js** – serverless function can keep a small in-memory store per request; for demo only (no cross-request persistence unless you use a single global object, which is not durable).
+3. **External API (future)** – If you document "For production, plug in Supabase/PlanetScale via env" you may add a thin HTTP client that reads from an optional API URL; do NOT add DB connection strings or ORM in generated code.
+
+**For "big website" prototypes (e.g. LinkedIn-style, dashboard, social feed):**
+- Use the same rules: localStorage for user/session simulation, in-memory or localStorage for feed/list data in the prototype.
+- Keep the UI and layout rich; keep the data layer simple so the app builds, audits, and deploys. Real ORM and DB come when the user takes the repo to production.
+
 === CRUD OPERATIONS (For Apps Needing Data Storage) ===
 When user requests an app with login, user data, or persistent storage:
 

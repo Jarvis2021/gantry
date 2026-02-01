@@ -303,7 +303,7 @@ def get_status(mission_id: str):
             {"status": "not_found", "error": "Mission not found", "speech": "Mission not found."}
         ), 404
 
-    return jsonify(
+    resp = jsonify(
         {
             "mission_id": mission.id,
             "status": mission.status,
@@ -311,6 +311,9 @@ def get_status(mission_id: str):
             "speech": mission.speech_output or f"Status: {mission.status}",
         }
     )
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 @app.route("/gantry/latest", methods=["GET"])
@@ -358,10 +361,9 @@ def get_latest_status():
 
 @app.route("/gantry/missions", methods=["GET"])
 def list_all_missions():
-    """List recent missions."""
+    """List recent missions. No-cache so Refresh and after Clear show current state."""
     missions = list_missions(limit=20)
-
-    return jsonify(
+    resp = jsonify(
         {
             "count": len(missions),
             "missions": [
@@ -375,6 +377,96 @@ def list_all_missions():
             "speech": f"{len(missions)} missions on record.",
         }
     )
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+
+
+@app.route("/gantry/missions/clear", methods=["POST"])
+@require_rate_limit
+@require_auth
+def clear_missions():
+    """
+    Clear all projects (delete all missions from DB).
+
+    Use to start from scratch. Mission folders on disk are kept for audit trail.
+    """
+    try:
+        count = get_fleet().clear_projects()
+        return jsonify(
+            {
+                "cleared": count,
+                "speech": f"Cleared {count} projects. You can start fresh.",
+            }
+        )
+    except Exception as e:
+        console.print(f"[red][API] Clear missions error: {e}[/red]")
+        return jsonify(
+            {"error": str(e), "speech": "Failed to clear projects. Try again."}
+        ), 500
+
+
+@app.route("/gantry/missions/<mission_id>/retry", methods=["POST"])
+@require_rate_limit
+@require_auth
+def retry_mission(mission_id: str):
+    """
+    Retry a failed mission from scratch (new blueprint, full self-healing again).
+
+    Only missions with status FAILED, BLOCKED, TIMEOUT, or PUBLISH_FAILED can be retried.
+    Body: optional {"deploy": true, "publish": true}.
+    """
+    try:
+        data = request.json or {}
+        deploy = data.get("deploy", True)
+        publish = data.get("publish", True)
+        result = get_fleet().retry_failed_mission(
+            mission_id, deploy=deploy, publish=publish
+        )
+        if result.get("status") == "error":
+            return jsonify(result), 400
+        return jsonify(result), 202
+    except Exception as e:
+        console.print(f"[red][API] Retry mission error: {e}[/red]")
+        return jsonify(
+            {"status": "error", "speech": f"Retry failed: {e}"}
+        ), 500
+
+
+@app.route("/gantry/missions/<mission_id>/failure", methods=["GET"])
+@require_auth
+def get_mission_failure(mission_id: str):
+    """
+    Get failure details for a mission from audit evidence (if present).
+
+    Reads missions/{mission_id}/audit_fail.json or flight_recorder.json from disk.
+    """
+    import json as json_module
+
+    missions_dir = PROJECT_ROOT / "missions" / mission_id
+    out = {"mission_id": mission_id, "failure": None, "speech": "No failure details on file."}
+
+    for name in ("audit_fail.json", "flight_recorder.json"):
+        path = missions_dir / name
+        if not path.is_file():
+            continue
+        try:
+            raw = path.read_text()
+            data = json_module.loads(raw)
+            if name == "audit_fail.json":
+                out["failure"] = {
+                    "exit_code": data.get("exit_code"),
+                    "output": data.get("output", "")[:2000],
+                    "verdict": data.get("verdict"),
+                }
+                out["speech"] = f"Last audit failed: exit code {data.get('exit_code')}. See output for details."
+            else:
+                out["failure"] = data
+                out["speech"] = "Flight recording available."
+            break
+        except Exception as e:
+            console.print(f"[yellow][API] Read {path}: {e}[/yellow]")
+    return jsonify(out)
 
 
 @app.route("/gantry/search", methods=["GET"])

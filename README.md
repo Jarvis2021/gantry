@@ -183,6 +183,16 @@ curl -X POST http://localhost:5050/gantry/architect \
 
 ---
 
+## Building Complex Apps & Big Website Prototypes
+
+Gantry generates **working prototypes** with a minimal data layer (localStorage + serverless API). **ORM and database connections are not supported in generated code** by design (no DB in the build or on Vercel). Big-website-style UIs are supported; for production you add DB + ORM after the fact.
+
+**To use Gantry for building complex apps, production-ready backends, or custom engagements:** reach out for subscription engagement. Contact the author to convert this critic into real business:
+
+**Pramod.Voola@gmail.com**
+
+---
+
 ## Quick Start
 
 ### Prerequisites
@@ -223,6 +233,15 @@ open http://localhost:5050
 ```
 
 For OpenAPI docs, run the optional FastAPI app: `python src/main_fastapi.py` then open `http://localhost:5050/docs`
+
+### Clear projects from the database
+
+- **From the UI**: Projects panel → **Clear all** (requires login). The list clears immediately; the DB is updated.
+- **From the CLI** (if UI clear fails or to verify): From project root, run:
+  ```bash
+  python scripts/clear_missions.py
+  ```
+  This deletes all rows from the `missions` table. Mission folders under `missions/` are kept for audit. Then refresh the browser or click **Refresh** in the Projects panel.
 
 ---
 

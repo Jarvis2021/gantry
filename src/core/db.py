@@ -326,6 +326,51 @@ def search_missions(keywords: list[str], limit: int = 5) -> list[MissionRecord]:
         ]
 
 
+def find_missions_by_prompt_hint(hint: str, limit: int = 10) -> list[MissionRecord]:
+    """
+    Find missions whose prompt matches the hint (any status).
+
+    Used for status queries: e.g. "status of linkedin website" -> hint "linkedin website".
+
+    Args:
+        hint: Substring to search for in prompt (ILIKE).
+        limit: Maximum number of missions to return.
+
+    Returns:
+        List of MissionRecord objects, most recent first.
+    """
+    if not hint or not hint.strip():
+        return []
+
+    with get_connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
+        cursor.execute(
+            """
+                SELECT * FROM missions
+                WHERE prompt ILIKE %s
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+            (f"%{hint.strip()}%", limit),
+        )
+        rows = cursor.fetchall()
+
+        return [
+            MissionRecord(
+                id=str(row["id"]),
+                prompt=row["prompt"],
+                status=row["status"],
+                speech_output=row["speech_output"],
+                created_at=row["created_at"].isoformat() if row["created_at"] else None,
+                updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
+                conversation_history=row.get("conversation_history") or [],
+                design_target=row.get("design_target"),
+                pending_question=row.get("pending_question"),
+                proposed_stack=row.get("proposed_stack"),
+            )
+            for row in rows
+        ]
+
+
 def get_mission_by_name(project_name: str) -> MissionRecord | None:
     """
     Get mission by project name (extracted from prompt).
@@ -359,6 +404,24 @@ def get_mission_by_name(project_name: str) -> MissionRecord | None:
             created_at=row["created_at"].isoformat() if row["created_at"] else None,
             updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
         )
+
+
+def clear_all_missions() -> int:
+    """
+    Delete all missions from the database (clear projects list).
+
+    Use with caution: this cannot be undone. Mission folders under missions/
+    are left on disk for audit trail; only DB rows are removed.
+
+    Returns:
+        Number of missions deleted.
+    """
+    with get_connection() as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) FROM missions")
+        count = cursor.fetchone()[0]
+        cursor.execute("DELETE FROM missions")
+    console.print(f"[cyan][DB] Cleared {count} missions[/cyan]")
+    return count
 
 
 def close_pool() -> None:

@@ -24,6 +24,7 @@ import os
 import re
 import threading
 import time
+from datetime import datetime, timezone
 
 from rich.console import Console
 
@@ -31,12 +32,15 @@ from src.core.architect import Architect, ArchitectError
 from src.core.consultant import Consultant, ConsultantResponse
 from src.core.db import (
     append_to_conversation,
+    clear_all_missions,
     clear_pending_question,
     create_consultation,
     create_mission,
+    find_missions_by_prompt_hint,
     get_active_consultation,
     get_mission,
     init_db,
+    list_missions,
     mark_ready_to_build,
     set_design_target,
     set_pending_question,
@@ -91,6 +95,225 @@ def _save_design_image(mission_id: str, image_base64: str, image_filename: str) 
     except Exception as e:
         console.print(f"[yellow][FLEET] Could not save design image: {e}[/yellow]")
         return None
+
+
+# In-progress statuses (build is still running)
+IN_PROGRESS_STATUSES = frozenset({
+    "PENDING", "READY_TO_BUILD", "ARCHITECTING", "VALIDATING",
+    "BUILDING", "HEALING", "DEPLOYING", "PUBLISHING",
+})
+
+# Human-readable stage labels for status responses
+STATUS_STAGE_LABELS = {
+    "PENDING": "Queued",
+    "READY_TO_BUILD": "Ready to build",
+    "CONSULTING": "In consultation",
+    "AWAITING_INPUT": "Waiting for your confirmation",
+    "ARCHITECTING": "Drafting blueprint",
+    "VALIDATING": "Running security check",
+    "BUILDING": "Building and running tests",
+    "HEALING": "Self-healing (fixing issues)",
+    "DEPLOYING": "Deploying to Vercel",
+    "PUBLISHING": "Opening Pull Request",
+    "DEPLOYED": "Live",
+    "SUCCESS": "Complete",
+    "PR_OPENED": "PR opened for review",
+    "BLOCKED": "Blocked",
+    "FAILED": "Failed",
+    "TIMEOUT": "Timed out",
+    "PUBLISH_FAILED": "Publish failed",
+}
+
+# Rough ETA / context per stage (for TTS/speech)
+STATUS_ETA_HINTS = {
+    "ARCHITECTING": "Usually 20–40 seconds for this step.",
+    "VALIDATING": "A few seconds.",
+    "BUILDING": "Typically 30–90 seconds.",
+    "HEALING": "May take another 30–60 seconds per attempt.",
+    "DEPLOYING": "Usually 15–30 seconds.",
+    "PUBLISHING": "Usually 10–20 seconds.",
+    "PENDING": "Build will start shortly.",
+    "READY_TO_BUILD": "Build will start when triggered.",
+}
+
+
+def _is_clear_projects_intent(text: str) -> bool:
+    """Return True if the message is a request to clear all projects from the database."""
+    if not text or len(text.strip()) < 4:
+        return False
+    t = text.strip().lower()
+    phrases = (
+        "clear (all )?projects",
+        "clear the (projects )?list",
+        "clear (the )?database",
+        "clear everything",
+        "clear all",
+        "clear projects",
+        "clear missions",
+    )
+    for p in phrases:
+        if re.search(p, t):
+            return True
+    return False
+
+
+def _resolve_clear_projects_intent(user_input: str) -> dict | None:
+    """
+    If the user is asking to clear all projects, run clear_all_missions() and return
+    a response. Otherwise return None.
+    """
+    if not _is_clear_projects_intent(user_input):
+        return None
+    try:
+        n = clear_all_missions()
+        return {
+            "status": "STATUS_RESPONSE",
+            "speech": f"Cleared {n} projects from the database. Click Refresh in the Projects panel to see the empty list.",
+            "cleared": n,
+        }
+    except Exception as e:
+        console.print(f"[red][FLEET] Clear projects failed: {e}[/red]")
+        return {
+            "status": "error",
+            "speech": f"Could not clear projects: {e}. Try the Clear all button in the Projects panel, or run: python scripts/clear_missions.py",
+        }
+
+
+def _is_status_query(text: str) -> bool:
+    """Return True if the message looks like a request for build status."""
+    if not text or len(text.strip()) < 3:
+        return False
+    t = text.strip().lower()
+    patterns = (
+        "status", "how is", "how's", "how are", "how're",
+        "what is the status", "what's the status", "whats the status",
+        "is it done", "is it ready", "is it complete", "is it finished",
+        "progress", "how long", "when will", "how much longer",
+        "stauts", "statut", "statue ",  # common typos
+    )
+    return any(p in t for p in patterns)
+
+
+def _extract_project_hint(text: str) -> str | None:
+    """Extract a project/app hint from a status question for matching missions."""
+    if not text or len(text.strip()) < 3:
+        return None
+    t = text.strip()
+    # Remove common question prefixes (case-insensitive); include typo "stauts"
+    prefixes = (
+        r"what\s+is\s+the\s+sta(?:tu)?ts?\s+of\s+",
+        r"what's\s+the\s+status\s+of\s+",
+        r"whats\s+the\s+status\s+of\s+",
+        r"how\s+is\s+(?:the\s+)?",
+        r"how's\s+(?:the\s+)?",
+        r"status\s+of\s+(?:the\s+)?",
+        r"progress\s+of\s+(?:the\s+)?",
+        r"how\s+is\s+(?:the\s+)?build\s+for\s+",
+        r"is\s+(?:the\s+)?",
+        r"when\s+will\s+(?:the\s+)?",
+    )
+    hint = t
+    for p in prefixes:
+        m = re.match(p, hint, re.IGNORECASE)
+        if m:
+            hint = hint[m.end() :].strip()
+            break
+    # Fallback: "X of Y" -> use Y (e.g. "what is the stauts of Linkedin website?" -> "Linkedin website")
+    if len(hint) > 30 and " of " in hint:
+        hint = hint.split(" of ", 1)[-1].strip()
+    # Remove trailing question words
+    hint = re.sub(r"\s*(?:\?|\.|!)\s*$", "", hint)
+    generic = ("it", "that", "this", "build", "app", "build going", "going", "the build")
+    if not hint or len(hint) < 2 or hint.lower() in generic or hint.lower().startswith("build "):
+        return None
+    return hint
+
+
+def _format_status_stage(status: str) -> str:
+    """Return human-readable stage label for a status."""
+    return STATUS_STAGE_LABELS.get(status, status.replace("_", " ").title())
+
+
+def _format_typical_eta(status: str) -> str:
+    """Return rough ETA hint for in-progress status."""
+    return STATUS_ETA_HINTS.get(status, "Builds usually take 1–3 minutes total.")
+
+
+def _elapsed_seconds(created_at: str | None) -> int | None:
+    """Return seconds since created_at, or None if not parseable."""
+    if not created_at:
+        return None
+    try:
+        # ISO format with or without Z
+        dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int((datetime.now(timezone.utc) - dt).total_seconds())
+    except (ValueError, TypeError):
+        return None
+
+
+def _resolve_status_query(user_input: str) -> dict | None:
+    """
+    If the user is asking for build status, look up the matching mission and return
+    a clear status response (stage, elapsed, ETA). Otherwise return None.
+    """
+    if not _is_status_query(user_input):
+        return None
+
+    hint = _extract_project_hint(user_input)
+    if hint:
+        missions = find_missions_by_prompt_hint(hint, limit=15)
+    else:
+        missions = list_missions(limit=20)
+
+    if not missions:
+        return {
+            "status": "STATUS_RESPONSE",
+            "speech": "I don't see any build matching that. Start one from the chat or check the Projects panel.",
+            "mission_id": None,
+        }
+
+    # Prefer in-progress build when user asks about status
+    in_progress = [m for m in missions if m.status in IN_PROGRESS_STATUSES]
+    mission = (in_progress[0] if in_progress else missions[0])
+
+    stage = _format_status_stage(mission.status)
+    elapsed = _elapsed_seconds(mission.created_at)
+    eta_text = _format_typical_eta(mission.status) if mission.status in IN_PROGRESS_STATUSES else ""
+
+    # Friendly project label: use design_target (e.g. LINKEDIN -> "LinkedIn") or truncated prompt
+    if getattr(mission, "design_target", None):
+        project_label = mission.design_target.replace("_", " ").title()
+    else:
+        project_label = (mission.prompt[:40] + "…") if len(mission.prompt) > 40 else mission.prompt
+
+    if mission.status in IN_PROGRESS_STATUSES:
+        elapsed_part = f" In progress for {elapsed} seconds." if elapsed is not None else ""
+        speech = (
+            f"The build for \"{project_label}\" is currently {stage}. "
+            f"{mission.speech_output or stage}.{elapsed_part} {eta_text}"
+        ).strip()
+    elif mission.status in ("DEPLOYED", "SUCCESS", "PR_OPENED"):
+        speech = (
+            f"The build for \"{project_label}\" is complete. "
+            f"{mission.speech_output or 'Live and PR opened.'}"
+        )
+    else:
+        speech = (
+            f"The build for \"{project_label}\" is {stage}. "
+            f"{mission.speech_output or stage}."
+        )
+
+    return {
+        "status": "STATUS_RESPONSE",
+        "speech": speech,
+        "mission_id": mission.id,
+        "stage": stage,
+        "mission_status": mission.status,
+        "elapsed_seconds": elapsed,
+        "project_label": project_label,
+    }
 
 
 # Check if publishing should be skipped (for tests/CI)
@@ -218,6 +441,18 @@ class FleetManager:
             - question: Optional question for user (if AWAITING_INPUT)
         """
         console.print(f"[cyan][FLEET] Processing: {user_input[:50]}...[/cyan]")
+
+        # If user is asking to clear projects, do it and return (don't send to Consultant)
+        clear_response = _resolve_clear_projects_intent(user_input)
+        if clear_response is not None:
+            console.print("[cyan][FLEET] Clear projects intent; clearing DB.[/cyan]")
+            return clear_response
+
+        # If user is asking for build status, answer from DB instead of Consultant
+        status_response = _resolve_status_query(user_input)
+        if status_response is not None:
+            console.print("[cyan][FLEET] Status query detected; returning build status.[/cyan]")
+            return status_response
 
         # Check for active consultation
         active = get_active_consultation()
@@ -421,6 +656,56 @@ class FleetManager:
             daemon=True,
         )
         thread.start()
+
+    def retry_failed_mission(
+        self,
+        mission_id: str,
+        deploy: bool = True,
+        publish: bool = True,
+    ) -> dict:
+        """
+        Re-run a failed mission from scratch (new blueprint, full self-healing again).
+
+        Only missions with status FAILED, BLOCKED, TIMEOUT, or PUBLISH_FAILED can be retried.
+        Runs in background thread; returns immediately with status BUILDING.
+        """
+        mission = get_mission(mission_id)
+        if not mission:
+            return {
+                "status": "error",
+                "speech": "Mission not found.",
+                "mission_id": mission_id,
+            }
+        retryable = {"FAILED", "BLOCKED", "TIMEOUT", "PUBLISH_FAILED"}
+        if mission.status not in retryable:
+            return {
+                "status": "error",
+                "speech": f"Cannot retry: mission is {mission.status}. Only failed or blocked missions can be retried.",
+                "mission_id": mission_id,
+            }
+        prompt = mission.prompt
+        design_target = getattr(mission, "design_target", None) or None
+        update_mission_status(
+            mission_id,
+            "BUILDING",
+            "Retrying build from scratch. Drafting new blueprint.",
+        )
+        thread = threading.Thread(
+            target=self._run_mission_with_target,
+            args=(mission_id, prompt, design_target, deploy, publish),
+            name=f"retry-{mission_id[:8]}",
+            daemon=True,
+        )
+        thread.start()
+        return {
+            "status": "BUILDING",
+            "speech": "Retrying build. Watch the Projects panel for progress.",
+            "mission_id": mission_id,
+        }
+
+    def clear_projects(self) -> int:
+        """Clear all missions from the database. Returns number cleared."""
+        return clear_all_missions()
 
     def _run_mission_with_target(
         self,
