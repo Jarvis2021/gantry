@@ -79,9 +79,7 @@ class SkillRegistry:
             # Dynamic import
             import importlib.util
 
-            spec = importlib.util.spec_from_file_location(
-                f"skills.{skill_dir.name}", handler_path
-            )
+            spec = importlib.util.spec_from_file_location(f"skills.{skill_dir.name}", handler_path)
             if spec and spec.loader:
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)

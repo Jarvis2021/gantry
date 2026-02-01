@@ -253,8 +253,18 @@ MIN_MESSAGE_LENGTH = 10
 MIN_WORD_COUNT = 3
 
 APP_KEYWORDS = [
-    "build", "create", "make", "app", "website", "api",
-    "service", "dashboard", "page", "tool", "system", "platform",
+    "build",
+    "create",
+    "make",
+    "app",
+    "website",
+    "api",
+    "service",
+    "dashboard",
+    "page",
+    "tool",
+    "system",
+    "platform",
 ]
 
 

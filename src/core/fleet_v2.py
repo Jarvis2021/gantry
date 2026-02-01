@@ -70,16 +70,17 @@ class FleetManager:
     async def _broadcast(self, mission_id: str, status: str, message: str) -> None:
         """Broadcast status update via WebSocket."""
         if self._ws_manager:
-            await self._ws_manager.broadcast(mission_id, {
-                "type": "status",
-                "mission_id": mission_id,
-                "status": status,
-                "message": message,
-            })
+            await self._ws_manager.broadcast(
+                mission_id,
+                {
+                    "type": "status",
+                    "mission_id": mission_id,
+                    "status": status,
+                    "message": message,
+                },
+            )
 
-    async def _update_status(
-        self, mission_id: str, status: str, speech: str
-    ) -> None:
+    async def _update_status(self, mission_id: str, status: str, speech: str) -> None:
         """Update mission status in DB and broadcast via WebSocket."""
         update_mission_status(mission_id, status, speech)
         await self._broadcast(mission_id, status, speech)
@@ -88,9 +89,7 @@ class FleetManager:
     # PUBLIC API
     # =========================================================================
 
-    async def dispatch_mission(
-        self, prompt: str, deploy: bool = True, publish: bool = True
-    ) -> str:
+    async def dispatch_mission(self, prompt: str, deploy: bool = True, publish: bool = True) -> str:
         """
         Dispatch a new mission.
 
@@ -104,9 +103,7 @@ class FleetManager:
         )
 
         # Spawn async task (stored to prevent garbage collection)
-        task = asyncio.create_task(
-            self._run_mission(mission_id, prompt, deploy, publish)
-        )
+        task = asyncio.create_task(self._run_mission(mission_id, prompt, deploy, publish))
         # Store reference to prevent GC
         task.add_done_callback(lambda _: None)
 
@@ -116,9 +113,7 @@ class FleetManager:
     # MISSION PIPELINE
     # =========================================================================
 
-    async def _run_mission(
-        self, mission_id: str, prompt: str, deploy: bool, publish: bool
-    ) -> None:
+    async def _run_mission(self, mission_id: str, prompt: str, deploy: bool, publish: bool) -> None:
         """
         Execute the complete mission pipeline.
 
@@ -142,9 +137,7 @@ class FleetManager:
             deploy_url = result.deploy_url
 
             # Phase 4: Publishing
-            pr_url = await self._phase_publish(
-                mission_id, manifest, publish, deploy_url
-            )
+            pr_url = await self._phase_publish(mission_id, manifest, publish, deploy_url)
 
             # Final status
             await self._finalize_mission(mission_id, deploy_url, pr_url)
@@ -153,17 +146,14 @@ class FleetManager:
             console.print(f"[red][Mission {mission_id[:8]}] Critical error: {e}[/red]")
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
             await self._update_status(
-                mission_id, "CRITICAL_FAILURE",
-                f"Mission aborted. Error: {str(e)[:100]}"
+                mission_id, "CRITICAL_FAILURE", f"Mission aborted. Error: {str(e)[:100]}"
             )
 
     # =========================================================================
     # PHASE 1: ARCHITECTURE
     # =========================================================================
 
-    async def _phase_architect(
-        self, mission_id: str, prompt: str
-    ) -> GantryManifest | None:
+    async def _phase_architect(self, mission_id: str, prompt: str) -> GantryManifest | None:
         """Draft the blueprint from the prompt."""
         console.print(f"[cyan][Mission {mission_id[:8]}] Drafting blueprint...[/cyan]")
         await self._update_status(mission_id, "ARCHITECTING", "Drafting blueprint.")
@@ -179,18 +169,14 @@ class FleetManager:
 
         except ArchitectError as e:
             console.print(f"[red][Mission {mission_id[:8]}] Architect failed: {e}[/red]")
-            await self._update_status(
-                mission_id, "FAILED", "Blueprint generation failed."
-            )
+            await self._update_status(mission_id, "FAILED", "Blueprint generation failed.")
             return None
 
     # =========================================================================
     # PHASE 2: VALIDATION
     # =========================================================================
 
-    async def _phase_validate(
-        self, mission_id: str, manifest: GantryManifest
-    ) -> bool:
+    async def _phase_validate(self, mission_id: str, manifest: GantryManifest) -> bool:
         """Validate manifest against policy."""
         console.print(f"[cyan][Mission {mission_id[:8]}] Policy check...[/cyan]")
         await self._update_status(mission_id, "VALIDATING", "Running security check.")
@@ -201,18 +187,14 @@ class FleetManager:
 
         except SecurityViolation as e:
             console.print(f"[red][Mission {mission_id[:8]}] Policy violation: {e}[/red]")
-            await self._update_status(
-                mission_id, "BLOCKED", "Request denied. Policy violation."
-            )
+            await self._update_status(mission_id, "BLOCKED", "Request denied. Policy violation.")
             return False
 
     # =========================================================================
     # PHASE 3: BUILD (WITH SELF-HEALING)
     # =========================================================================
 
-    async def _phase_build(
-        self, mission_id: str, manifest: GantryManifest, deploy: bool
-    ):
+    async def _phase_build(self, mission_id: str, manifest: GantryManifest, deploy: bool):
         """Build with self-healing loop."""
         architect = self._get_architect()
         current_manifest = manifest
@@ -223,15 +205,14 @@ class FleetManager:
                 f"(attempt {attempt}/{MAX_RETRIES})...[/cyan]"
             )
             await self._update_status(
-                mission_id, "BUILDING",
-                f"Building {current_manifest.project_name}. Attempt {attempt}."
+                mission_id,
+                "BUILDING",
+                f"Building {current_manifest.project_name}. Attempt {attempt}.",
             )
 
             try:
                 result = self._foundry.build(current_manifest, mission_id, deploy=deploy)
-                console.print(
-                    f"[green][Mission {mission_id[:8]}] Build PASSED[/green]"
-                )
+                console.print(f"[green][Mission {mission_id[:8]}] Build PASSED[/green]")
                 return result
 
             except (AuditFailedError, DeploymentError) as e:
@@ -249,15 +230,12 @@ class FleetManager:
 
             except BuildTimeoutError:
                 console.print(f"[red][Mission {mission_id[:8]}] Timeout[/red]")
-                await self._update_status(
-                    mission_id, "TIMEOUT", "Dead man's switch triggered."
-                )
+                await self._update_status(mission_id, "TIMEOUT", "Dead man's switch triggered.")
                 return None
 
         # Exhausted retries
         await self._update_status(
-            mission_id, "FAILED",
-            f"Build failed after {MAX_RETRIES} attempts."
+            mission_id, "FAILED", f"Build failed after {MAX_RETRIES} attempts."
         )
         return None
 
@@ -274,20 +252,15 @@ class FleetManager:
             f"[yellow][Mission {mission_id[:8]}] Self-healing attempt {attempt}...[/yellow]"
         )
         await self._update_status(
-            mission_id, "HEALING",
-            f"Build failed. Self-repair attempt {attempt} of {MAX_RETRIES}."
+            mission_id, "HEALING", f"Build failed. Self-repair attempt {attempt} of {MAX_RETRIES}."
         )
 
         try:
             healed = architect.heal_blueprint(manifest, error_log)
-            console.print(
-                f"[cyan][Mission {mission_id[:8]}] Healed manifest received[/cyan]"
-            )
+            console.print(f"[cyan][Mission {mission_id[:8]}] Healed manifest received[/cyan]")
             return healed
         except ArchitectError as e:
-            console.print(
-                f"[red][Mission {mission_id[:8]}] Healing failed: {e}[/red]"
-            )
+            console.print(f"[red][Mission {mission_id[:8]}] Healing failed: {e}[/red]")
             return None
 
     # =========================================================================
@@ -326,9 +299,7 @@ class FleetManager:
             return pr_url
 
         except (SecurityBlock, PublishError) as e:
-            console.print(
-                f"[red][Mission {mission_id[:8]}] Publish failed: {e}[/red]"
-            )
+            console.print(f"[red][Mission {mission_id[:8]}] Publish failed: {e}[/red]")
             return None
 
     # =========================================================================
@@ -342,24 +313,18 @@ class FleetManager:
         if deploy_url and pr_url:
             console.print(f"[green][Mission {mission_id[:8]}] LIVE + PR[/green]")
             await self._update_status(
-                mission_id, "DEPLOYED",
-                f"Gantry successful. Live at {deploy_url}. PR opened."
+                mission_id, "DEPLOYED", f"Gantry successful. Live at {deploy_url}. PR opened."
             )
         elif deploy_url:
             console.print(f"[green][Mission {mission_id[:8]}] LIVE: {deploy_url}[/green]")
             await self._update_status(
-                mission_id, "DEPLOYED",
-                f"Gantry successful. Live at {deploy_url}"
+                mission_id, "DEPLOYED", f"Gantry successful. Live at {deploy_url}"
             )
         elif pr_url:
             console.print(f"[green][Mission {mission_id[:8]}] PR OPENED[/green]")
             await self._update_status(
-                mission_id, "PR_OPENED",
-                "Gantry successful. Pull Request opened."
+                mission_id, "PR_OPENED", "Gantry successful. Pull Request opened."
             )
         else:
             console.print(f"[green][Mission {mission_id[:8]}] COMPLETE[/green]")
-            await self._update_status(
-                mission_id, "SUCCESS",
-                "Gantry successful. Build verified."
-            )
+            await self._update_status(mission_id, "SUCCESS", "Gantry successful. Build verified.")

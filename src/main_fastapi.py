@@ -59,6 +59,7 @@ from src.skills import load_skills
 
 console = Console()
 
+
 # WebSocket connection manager
 class ConnectionManager:
     """Manages WebSocket connections for real-time updates."""
@@ -314,8 +315,13 @@ async def architect(
     if wait:
         # Wait for completion (up to 120 seconds)
         terminal_states = [
-            "SUCCESS", "DEPLOYED", "PR_OPENED",
-            "FAILED", "BLOCKED", "TIMEOUT", "CRITICAL_FAILURE",
+            "SUCCESS",
+            "DEPLOYED",
+            "PR_OPENED",
+            "FAILED",
+            "BLOCKED",
+            "TIMEOUT",
+            "CRITICAL_FAILURE",
         ]
         for _ in range(40):  # 40 * 3s = 120s
             await asyncio.sleep(3)
