@@ -45,9 +45,9 @@ EXPOSE 5050
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:5050/health || exit 1
 
-# Copy skills and prompts directories if they exist
-COPY --chown=root:root src/skills/ /app/src/skills/ 2>/dev/null || true
-COPY --chown=root:root prompts/ /app/prompts/ 2>/dev/null || true
+# Copy skills and prompts directories
+COPY src/skills/ /app/src/skills/
+COPY prompts/ /app/prompts/
 
 # Run FastAPI with uvicorn (async, WebSocket support)
 CMD ["uvicorn", "src.main_fastapi:app", "--host", "0.0.0.0", "--port", "5050"]
