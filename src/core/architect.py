@@ -679,6 +679,14 @@ package.json:
 - **Calculator**: Buttons grid, display, interactive calculations
 - **Game**: Canvas or DOM-based, score tracking, animations
 - **Form App**: Input validation, success/error messages, submissions
+- **Weather/Temperature App** (IMPORTANT): 
+  - MUST have a city search input where user can type city name
+  - MUST use a free weather API (Open-Meteo: https://open-meteo.com/en/docs)
+  - MUST show at least 7-day forecast with min/max temperatures
+  - Show weather icons/conditions (sunny, cloudy, rain, etc.)
+  - Include current temperature prominently
+  - Example API: https://api.open-meteo.com/v1/forecast?latitude=40.71&longitude=-74.01&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto
+  - Use geocoding for city search: https://geocoding-api.open-meteo.com/v1/search?name=NewYork&count=5
 
 === DATA LAYER / ORM (CRITICAL FOR BIG WEBSITE PROTOTYPES) ===
 
