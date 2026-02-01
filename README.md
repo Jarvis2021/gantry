@@ -202,6 +202,8 @@ flowchart TB
 
 ### ✅ Production Ready
 
+> **Demo Video:** See the full demo at [gantryfleet.ai](https://gantryfleet.ai) or request access to the demo recording.
+
 - AI Architect Consultation with iteration planning
 - Self-healing builds (3 retry attempts)
 - Zero-trust Docker isolation
