@@ -161,6 +161,11 @@ curl -X POST http://localhost:5050/gantry/voice \
 
 ## Architecture Overview
 
+![GantryFleet Architecture](assets/README.png)
+
+<details>
+<summary>View as Mermaid Diagram</summary>
+
 ```mermaid
 flowchart TB
     subgraph Input["Multi-Modal Input"]
@@ -188,6 +193,8 @@ flowchart TB
 
     Input --> Core --> Foundry --> Output
 ```
+
+</details>
 
 ---
 
