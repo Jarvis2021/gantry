@@ -1,0 +1,11 @@
+include LICENSE
+include NOTICE
+include README.md
+include ARCHITECTURE.md
+include CONTRIBUTING.md
+include requirements.txt
+recursive-include src/static *
+recursive-include assets *.png *.jpg *.svg
+prune missions
+prune tests
+prune .github
