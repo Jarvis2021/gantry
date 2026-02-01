@@ -58,7 +58,7 @@ class MissionRecord(BaseModel):
 
     Why Pydantic: Type safety and validation when reading from DB.
 
-    V6.5 Additions:
+    Consultation Additions:
     - conversation_history: Tracks the back-and-forth with user
     - design_target: Famous app being cloned (LINKEDIN, TWITTER, etc.)
     - pending_question: Question waiting for user response
@@ -70,7 +70,7 @@ class MissionRecord(BaseModel):
     speech_output: str | None = None
     created_at: str
     updated_at: str | None = None
-    # V6.5: Consultation Loop Fields
+    # Consultation Loop Fields
     conversation_history: list[dict] | None = None
     design_target: str | None = None
     pending_question: str | None = None
@@ -139,7 +139,7 @@ def init_db() -> None:
     Why explicit init: Ensures table exists before any operations.
     Called at application startup. Safe to call multiple times.
 
-    V6.5: Added conversation_history, design_target, pending_question columns.
+    Added conversation_history, design_target, pending_question columns.
     """
     with get_connection() as conn, conn.cursor() as cursor:
         cursor.execute("""
@@ -169,7 +169,7 @@ def init_db() -> None:
                 ON missions(created_at DESC)
             """)
 
-        # V6.5: Add new columns if they don't exist (migration for existing DBs)
+        # Add new columns if they don't exist (migration for existing DBs)
         for column, col_type in [
             ("conversation_history", "JSONB DEFAULT '[]'::jsonb"),
             ("design_target", "VARCHAR(100)"),
@@ -255,7 +255,7 @@ def get_mission(mission_id: str) -> MissionRecord | None:
             speech_output=row["speech_output"],
             created_at=row["created_at"].isoformat() if row["created_at"] else None,
             updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
-            # V6.5: Consultation fields
+            # Consultation fields
             conversation_history=row.get("conversation_history") or [],
             design_target=row.get("design_target"),
             pending_question=row.get("pending_question"),
@@ -292,7 +292,7 @@ def list_missions(limit: int = 50) -> list[MissionRecord]:
                 speech_output=row["speech_output"],
                 created_at=row["created_at"].isoformat() if row["created_at"] else None,
                 updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
-                # V6.5: Consultation fields
+                # Consultation fields
                 conversation_history=row.get("conversation_history") or [],
                 design_target=row.get("design_target"),
                 pending_question=row.get("pending_question"),
@@ -461,7 +461,7 @@ def close_pool() -> None:
 
 
 # =============================================================================
-# V6.5: CONSULTATION LOOP DATABASE METHODS
+# CONSULTATION LOOP DATABASE METHODS
 # =============================================================================
 
 
@@ -469,7 +469,7 @@ def create_consultation(prompt: str, design_target: str | None = None) -> str:
     """
     Create a new consultation session.
 
-    This is the V6.5 "Consultation Phase" - before building, we consult.
+    This is the "Consultation Phase" - before building, we consult.
 
     Args:
         prompt: The user's initial request.

@@ -740,7 +740,7 @@
             const s = status.toUpperCase();
             if (['DEPLOYED', 'SUCCESS', 'PR_OPENED'].includes(s)) return 'live';
             if (['BUILDING', 'ARCHITECTING', 'VALIDATING', 'PUBLISHING', 'HEALING', 'PENDING', 'READY_TO_BUILD'].includes(s)) return 'building';
-            if (['CONSULTING', 'AWAITING_INPUT'].includes(s)) return 'queued';  // V6.5
+            if (['CONSULTING', 'AWAITING_INPUT'].includes(s)) return 'queued';
             if (['FAILED', 'TIMEOUT', 'CRITICAL_FAILURE', 'BLOCKED'].includes(s)) return 'failed';
             return 'queued';
         }
@@ -823,7 +823,7 @@
             imagePreview.classList.remove('active');
         }
 
-        // V6.5: Track current consultation mission
+        // Track current consultation mission
         let currentMissionId = null;
 
         async function handleSend() {
@@ -848,7 +848,7 @@
             addTypingIndicator();
 
             try {
-                // V6.5: Use the new /gantry/voice endpoint (image saved to mission folder and included in repo)
+                // Use the /gantry/voice endpoint (image saved to mission folder and included in repo)
                 const payload = { message: messageContent };
                 if (imageToSend) {
                     payload.image_base64 = imageToSend.data;
@@ -876,7 +876,7 @@
                     return;
                 }
 
-                // V6.5: Handle consultation loop responses
+                // Handle consultation loop responses
                 const status = data.status;
                 
                 if (status === 'BUILDING') {
@@ -896,7 +896,7 @@
                     }
                     
                 } else if (status === 'AWAITING_INPUT') {
-                    // V6.5: AI Architect is asking a question
+                    // AI Architect is asking a question
                     currentMissionId = data.mission_id;
                     
                     let responseText = data.speech || data.question || 'Could you tell me more?';

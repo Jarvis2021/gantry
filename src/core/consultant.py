@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # -----------------------------------------------------------------------------
-# THE AI ARCHITECT AGENT - V6.5 INTERROGATOR
+# THE AI ARCHITECT AGENT - INTERROGATOR
 # -----------------------------------------------------------------------------
 # Responsibility: Analyze user requests and decide if we have enough info to
 # build, or if we need to ask clarifying questions.

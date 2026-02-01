@@ -1,6 +1,6 @@
 # GantryFleet Architecture
 
-> Technical documentation for the GantryFleet Protocol (V7.0 - 2026 Architecture)
+> Technical documentation for the GantryFleet Protocol
 
 ---
 
@@ -16,9 +16,9 @@ GantryFleet is a **production-grade AI software factory** that transforms natura
 
 ---
 
-## Architecture Overview (V7.0 - 2026)
+## Architecture Overview
 
-| Aspect | V7.0 (Primary) | Description |
+| Aspect | Current | Description |
 |--------|----------------|-------------|
 | **API** | FastAPI (async) | Primary entry: `src/main_fastapi.py`. WebSocket + REST. |
 | **Consultation** | AI Architect Agent | `src/core/consultant.py`. Multi-turn: propose → question → confirm → build. |
@@ -46,7 +46,7 @@ flowchart TB
         Uplink["gantry_uplink"]
     end
 
-    subgraph FastAPI["FastAPI API (V7.0)"]
+    subgraph FastAPI["FastAPI API"]
         Auth["Argon2 Auth<br/>TokenBucket Rate Limit"]
         Guard["Guardrails<br/>Content Filter"]
         Endpoints["Endpoints:<br/>/voice, /consult, /architect"]
@@ -115,7 +115,7 @@ flowchart TB
 
 ---
 
-## API Endpoints (V7.0)
+## API Endpoints
 
 ### Core Endpoints
 
@@ -133,7 +133,7 @@ flowchart TB
 | `POST` | `/gantry/auth` | Authenticate with password |
 | `GET` | `/gantry/auth/status` | Check session validity |
 
-### V6.5 Consultation Loop
+### Consultation Loop
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -173,7 +173,7 @@ flowchart TB
 
 ### Consultation Flow (Primary: Voice / Chat)
 
-This is the main V7.0 path: **Voice/Chat → AI Architect Proposal → User Feedback → "Proceed" → Build.**
+This is the main path: **Voice/Chat → AI Architect Proposal → User Feedback → "Proceed" → Build.**
 
 ```mermaid
 sequenceDiagram
@@ -267,7 +267,7 @@ sequenceDiagram
 
 ### Mission (DB)
 
-Relevant fields for V7.0:
+Relevant fields:
 
 - `id`, `status`, `prompt`, `speech_output`
 - `conversation_history` (JSONB): list of {role, content}
@@ -523,4 +523,4 @@ For high-scale production deployments, GantryFleet supports a 3-layer hybrid arc
 
 ---
 
-*Last updated: January 2026 (V7.0 - GantryFleet Production)*
+*Last updated: January 2026 - GantryFleet Production*

@@ -4,8 +4,8 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-V7.0%20Async-009688.svg)](https://fastapi.tiangolo.com/)
-[![Status](https://img.shields.io/badge/Status-V7.0_Production-neon_blue.svg)](https://gantryfleet.ai)
+[![FastAPI](https://img.shields.io/badge/FastAPI-Async-009688.svg)](https://fastapi.tiangolo.com/)
+[![Status](https://img.shields.io/badge/Status-Production-neon_blue.svg)](https://gantryfleet.ai)
 
 > **"You don't write code. You direct the fleet."**
 
@@ -38,7 +38,7 @@
 
 ---
 
-## Key Capabilities (V7.0 - Production)
+## Key Capabilities
 
 ### 1. AI Architect Consultation
 GantryFleet doesn't guess. The **AI Architect Agent** analyzes your request, proposes a plan, asks clarifying questions, and breaks complex projects into **iterations** before building.
@@ -193,7 +193,7 @@ flowchart TB
 
 ## What's Built vs. What's Planned
 
-### ✅ Production Ready (V7.0)
+### ✅ Production Ready
 
 - AI Architect Consultation with iteration planning
 - Self-healing builds (3 retry attempts)

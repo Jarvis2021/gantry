@@ -271,7 +271,7 @@ class Foundry:
         """
         Verify the project has correct Vercel serverless structure.
 
-        V7.0 LENIENT CHECK: Support multiple valid Vercel structures:
+        LENIENT CHECK: Support multiple valid Vercel structures:
         1. Static-only: public/index.html + vercel.json (no API required)
         2. API + Static: api/index.js + public/index.html + vercel.json
         3. Full serverless: api/*.js with ESM or CommonJS exports
@@ -285,7 +285,7 @@ class Foundry:
         """
         console.print("[cyan][FOUNDRY] Verifying Vercel serverless structure...[/cyan]")
 
-        # V7.0: More lenient check - accept static-only or API projects
+        # More lenient check - accept static-only or API projects
         if manifest.stack == StackType.NODE:
             check_cmd = """
             # Check for valid Vercel structure (multiple patterns allowed)

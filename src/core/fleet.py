@@ -13,14 +13,14 @@
 # limitations under the License.
 
 # -----------------------------------------------------------------------------
-# THE FLEET MANAGER v2 - ASYNC ORCHESTRATOR (V6.5 + 2026 Architecture)
+# THE FLEET MANAGER - ASYNC ORCHESTRATOR
 # -----------------------------------------------------------------------------
-# Full async implementation with V6.5 consultation loop, WebSocket support,
-# and 2026 architecture patterns (structured logging, resource protection).
+# Full async implementation with consultation loop, WebSocket support,
+# and production architecture patterns (structured logging, resource protection).
 #
 # Features:
 # - Async/await throughout (non-blocking)
-# - V6.5 Consultation Loop (voice -> consult -> confirm -> build)
+# - Consultation Loop (voice -> consult -> confirm -> build)
 # - WebSocket real-time updates
 # - Semaphore-based concurrency limiting
 # - Mission timeouts and self-healing
@@ -301,7 +301,7 @@ class FleetManager:
     """
     The Fleet Orchestrator v2 (Async).
 
-    V6.5 Pipeline: Voice -> Consult -> Confirm -> Build -> Deploy
+    Pipeline: Voice -> Consult -> Confirm -> Build -> Deploy
     All operations are async for non-blocking execution.
     WebSocket support for real-time updates.
     """
@@ -352,7 +352,7 @@ class FleetManager:
         await self._broadcast(mission_id, status, speech)
 
     # =========================================================================
-    # V6.5: CONSULTATION LOOP
+    # CONSULTATION LOOP
     # =========================================================================
 
     async def process_voice_input(
@@ -364,7 +364,7 @@ class FleetManager:
         image_filename: str | None = None,
     ) -> dict:
         """
-        Process voice/chat input through the V6.5 Consultation Loop.
+        Process voice/chat input through the Consultation Loop.
 
         Flow:
         1. Check for clear projects intent
@@ -658,7 +658,7 @@ class FleetManager:
         deploy: bool,
         publish: bool,
     ) -> None:
-        """Execute mission pipeline with design target (V6.5)."""
+        """Execute mission pipeline with design target."""
         async with self._mission_semaphore:
             mission_start = time.time()
             self._active_missions[mission_id] = mission_start
@@ -671,7 +671,7 @@ class FleetManager:
 
                 async with AsyncProgressTracker(mission_id, "ARCHITECTING", self._ws_manager):
                     architect = self._get_architect()
-                    # V7.0: Pass mission_id for vision/mockup support
+                    # Pass mission_id for vision/mockup support
                     manifest = await asyncio.get_event_loop().run_in_executor(
                         None,
                         lambda: architect.draft_blueprint(

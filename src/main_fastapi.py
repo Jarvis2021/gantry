@@ -13,12 +13,12 @@
 # limitations under the License.
 
 # -----------------------------------------------------------------------------
-# GANTRY FLEET - FASTAPI INTERFACE (V7.0 - 2026 Architecture)
+# GANTRY FLEET - FASTAPI INTERFACE
 # -----------------------------------------------------------------------------
-# Modern async API with full V6.5 consultation loop and 2026 enhancements.
+# Modern async API with consultation loop and production enhancements.
 #
 # Features:
-# - Full V6.5 consultation loop (voice, consult, themes)
+# - Full consultation loop (voice, consult, themes)
 # - WebSocket real-time updates
 # - OpenTelemetry-ready structured logging
 # - Enhanced health checks
@@ -29,8 +29,8 @@
 # - GET  /health        : Enhanced health check
 # - GET  /ready         : Readiness probe (2026)
 # - POST /gantry/auth   : Authentication
-# - POST /gantry/voice  : V6.5 consultation entry
-# - POST /gantry/consult: V6.5 consultation
+# - POST /gantry/voice  : consultation entry
+# - POST /gantry/consult: consultation
 # - GET  /gantry/consultation/{id} : Get consultation state
 # - GET  /gantry/themes : Famous app themes
 # - POST /gantry/architect : Direct build
@@ -225,7 +225,7 @@ class AuthResponse(BaseModel):
 
 
 class VoiceRequest(BaseModel):
-    """V6.5 voice/consult request."""
+    """Voice/consult request."""
 
     message: str = Field(..., description="The voice memo or chat message")
     deploy: bool = Field(True, description="Whether to deploy to Vercel")
@@ -244,7 +244,7 @@ class IterationInfo(BaseModel):
 
 
 class ConsultResponse(BaseModel):
-    """V6.5 consultation response."""
+    """Consultation response."""
 
     status: str
     speech: str
@@ -407,7 +407,7 @@ async def auth_status(request: Request):
 
 
 # =============================================================================
-# V6.5: CONSULTATION LOOP ENDPOINTS
+# CONSULTATION LOOP ENDPOINTS
 # =============================================================================
 
 
@@ -418,7 +418,7 @@ async def voice(
     _user_id: Annotated[str, Depends(get_current_user)],
 ):
     """
-    V6.5 Main Entry Point: Process voice/chat through the Consultation Loop.
+    Main Entry Point: Process voice/chat through the Consultation Loop.
 
     This replaces direct builds with a conversational flow:
     1. First request -> AI Architect analyzes and asks clarifying questions
@@ -447,7 +447,7 @@ async def consult(
     _user_id: Annotated[str, Depends(get_current_user)],
 ):
     """
-    V6.5 Consultation endpoint - start or continue a consultation.
+    Consultation endpoint - start or continue a consultation.
     Same as /gantry/voice but with explicit naming.
     """
     if not request.message.strip():
@@ -784,7 +784,7 @@ def print_banner() -> None:
     ╔═══════════════════════════════════════════════════╗
     ║           GANTRY FLEET v7.0 (2026 Architecture)   ║
     ║  • FastAPI Async Core                             ║
-    ║  • V6.5 Consultation Loop                         ║
+    ║  • AI Architect Consultation Loop                 ║
     ║  • WebSocket Real-time Updates                    ║
     ║  • Pluggable Skills System                        ║
     ╚═══════════════════════════════════════════════════╝

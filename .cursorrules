@@ -16,7 +16,7 @@
 # 3. "Black Box" Evidence: Every mission records a cryptographic audit trail.
 # 4. "95% Mockup Fidelity": Design uploads are matched with visual precision.
 #
-# Technical Stack (V7.0 Production Architecture):
+# Technical Stack (Production Architecture):
 # - Brain: AWS Bedrock (Claude 3.5 Sonnet) with Vision/Multimodal Support
 # - Body: Docker (via Secure Proxy)
 # - Uplink: Cloudflare Tunnel (version-controlled config)
@@ -216,9 +216,9 @@
    resource timeouts. Shall I proceed?"
 
 # -----------------------------------------------------------------------------
-# 13. ARCHITECTURE V7.0 PATTERNS (REQUIRED)
+# 13. ARCHITECTURE PATTERNS (REQUIRED)
 # -----------------------------------------------------------------------------
-# GantryFleet V7.0 Production Architecture. Follow these patterns:
+# GantryFleet Production Architecture. Follow these patterns:
 #
 - **FASTAPI ASYNC CORE**:
   - Use `main_fastapi.py` as the primary entrypoint.
@@ -256,7 +256,7 @@
 # -----------------------------------------------------------------------------
 # 14. FILE NAMING CONVENTIONS
 # -----------------------------------------------------------------------------
-- **PRIMARY MODULES** (V7.0 Production):
+- **PRIMARY MODULES** (Production):
   - `main_fastapi.py` - Primary API entry point (FastAPI)
   - `fleet.py` - Async Fleet Manager with WebSocket support
   - `architect.py` - AI Blueprint Generator with Vision support

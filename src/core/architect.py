@@ -48,7 +48,7 @@ BEDROCK_REGION = os.getenv("BEDROCK_REGION", "us-east-1")
 BEDROCK_ENDPOINT = f"https://bedrock-runtime.{BEDROCK_REGION}.amazonaws.com"
 
 # =============================================================================
-# V7.0: 3-TIER MODEL ARCHITECTURE (Robust Multi-Model Fallback)
+# 3-TIER MODEL ARCHITECTURE (Robust Multi-Model Fallback)
 # =============================================================================
 # GantryFleet uses a tiered approach to maximize success rate:
 # - Tier 1 (Primary): Claude 4 Opus - Most capable, best for complex apps
@@ -85,7 +85,7 @@ CLAUDE_MODEL_ID = MODEL_TIERS[0]["id"]
 ENABLE_MODEL_FALLBACK = True
 
 # =============================================================================
-# V6.5: FAMOUS THEMES DESIGN SYSTEM
+# FAMOUS THEMES DESIGN SYSTEM
 # =============================================================================
 # Pixel-perfect cloning of famous apps. When user says "Build LinkedIn",
 # Gantry injects these exact design specs into the system prompt.
@@ -1138,7 +1138,7 @@ class Architect:
         """
         Draft Fabrication Instructions from a voice memo.
 
-        V7.0: 3-Tier Model Architecture with automatic fallback.
+        3-Tier Model Architecture with automatic fallback.
         - Tier 1: Claude 4 Opus (most capable)
         - Tier 2: Claude 4 Sonnet (balanced)
         - Tier 3: Claude 3.5 Sonnet (battle-tested)
@@ -1156,7 +1156,7 @@ class Architect:
         Raises:
             ArchitectError: If ALL model tiers fail.
         """
-        # V6.5: Auto-detect design target if not provided
+        # Auto-detect design target if not provided
         if not design_target:
             design_target = detect_design_target(prompt)
 
@@ -1164,20 +1164,20 @@ class Architect:
         if design_target:
             console.print(f"[cyan][ARCHITECT] Clone protocol: {design_target}[/cyan]")
 
-        # V7.0: Load design reference image if available
+        # Load design reference image if available
         image_b64, media_type = self._load_design_image(mission_id)
         has_mockup = image_b64 is not None
 
         if has_mockup:
             console.print("[cyan][ARCHITECT] Vision mode: 95% mockup matching enabled[/cyan]")
 
-        # V6.5: Inject design theme into system prompt
+        # Inject design theme into system prompt
         system_prompt = SYSTEM_PROMPT
         if design_target:
             theme_prompt = get_theme_prompt(design_target)
             system_prompt = SYSTEM_PROMPT + theme_prompt
 
-        # V7.0: Build multimodal content if image is provided
+        # Build multimodal content if image is provided
         if has_mockup:
             user_content = [
                 {
@@ -1211,7 +1211,7 @@ Generate a GantryManifest that replicates this design with 95% accuracy. Include
             user_content = prompt
 
         # =====================================================================
-        # V7.0: 3-TIER MODEL FALLBACK ARCHITECTURE
+        # 3-TIER MODEL FALLBACK ARCHITECTURE
         # =====================================================================
         # Try each tier until we get a valid manifest. This ensures:
         # - Simple apps NEVER fail (try 3 models before giving up)
