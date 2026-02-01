@@ -358,15 +358,24 @@ class FleetManager:
 
         # Pattern-based error mapping (checked in order)
         error_patterns = [
-            ("api error 400", "AI model unavailable. The model may not be enabled in your AWS region."),
+            (
+                "api error 400",
+                "AI model unavailable. The model may not be enabled in your AWS region.",
+            ),
             ("api error 401", "Authentication failed. Please check your AWS credentials."),
             ("unauthorized", "Authentication failed. Please check your AWS credentials."),
             ("api error 403", "Access denied. You may not have permission to use this AI model."),
             ("forbidden", "Access denied. You may not have permission to use this AI model."),
             ("api error 429", "Rate limited. Too many requests - please wait and try again."),
             ("rate limit", "Rate limited. Too many requests - please wait and try again."),
-            ("api error 5", "AI service temporarily unavailable. Please try again in a few minutes."),
-            ("server error", "AI service temporarily unavailable. Please try again in a few minutes."),
+            (
+                "api error 5",
+                "AI service temporarily unavailable. Please try again in a few minutes.",
+            ),
+            (
+                "server error",
+                "AI service temporarily unavailable. Please try again in a few minutes.",
+            ),
             ("timeout", "Request timed out. The AI took too long to respond."),
             ("no valid json", "AI response was malformed. Please try again."),
             ("api_key", "API key not configured. Please set BEDROCK_API_KEY."),
