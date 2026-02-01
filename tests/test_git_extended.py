@@ -4,11 +4,7 @@
 # Comprehensive tests for Git infrastructure.
 # =============================================================================
 
-import os
-from pathlib import Path
-from unittest.mock import MagicMock, patch
 
-import pytest
 
 
 class TestGitProvider:
@@ -90,8 +86,9 @@ class TestGitHubFunctions:
 
     def test_create_github_repo_signature(self):
         """create_github_repo should have correct signature."""
-        from src.infra.git_client import create_github_repo
         import inspect
+
+        from src.infra.git_client import create_github_repo
 
         sig = inspect.signature(create_github_repo)
         params = list(sig.parameters.keys())
@@ -100,8 +97,9 @@ class TestGitHubFunctions:
 
     def test_create_pull_request_signature(self):
         """create_pull_request should have correct signature."""
-        from src.infra.git_client import create_pull_request
         import inspect
+
+        from src.infra.git_client import create_pull_request
 
         sig = inspect.signature(create_pull_request)
         params = list(sig.parameters.keys())
@@ -121,8 +119,9 @@ class TestGitProviderInit:
 
     def test_git_provider_requires_workspace(self):
         """GitProvider should require workspace_path."""
-        from src.infra.git_client import GitProvider
         import inspect
+
+        from src.infra.git_client import GitProvider
 
         sig = inspect.signature(GitProvider.__init__)
         params = list(sig.parameters.keys())

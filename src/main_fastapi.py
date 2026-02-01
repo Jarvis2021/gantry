@@ -67,7 +67,7 @@ from dotenv import load_dotenv
 load_dotenv(PROJECT_ROOT / ".env")
 
 from src.core.architect import FAMOUS_THEMES, Architect, ArchitectError
-from src.core.auth_v2 import (
+from src.core.auth import (
     RateLimiter,
     TokenBucket,
     authenticate_user,
@@ -76,7 +76,7 @@ from src.core.auth_v2 import (
     verify_session,
 )
 from src.core.db import get_mission, init_db, list_missions
-from src.core.fleet_v2 import FleetManager
+from src.core.fleet import FleetManager
 from src.skills import load_skills
 
 console = Console()

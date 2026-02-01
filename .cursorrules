@@ -246,8 +246,10 @@
 # -----------------------------------------------------------------------------
 # 14. FILE NAMING CONVENTIONS
 # -----------------------------------------------------------------------------
-- **V2 MODULES**: New architecture files use `_v2` suffix during migration:
-  - `auth_v2.py`, `fleet_v2.py`, `main_fastapi.py`
+- **PRIMARY MODULES**: FastAPI architecture (V7.0):
+  - `main_fastapi.py` - Primary API entry point
+  - `fleet.py` - Async Fleet Manager with WebSocket support
+  - `auth.py` - Argon2 auth with TokenBucket rate limiting
   - After migration complete, these become the primary files.
 - **SKILLS**: `src/skills/{skill-name}/handler.py`
 - **PROMPTS**: `prompts/{prompt-name}.md`

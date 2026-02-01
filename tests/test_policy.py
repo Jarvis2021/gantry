@@ -3,7 +3,6 @@ Tests for security policy enforcement.
 """
 
 import pytest
-
 from src.core.policy import PolicyGate, SecurityViolation
 from src.domain.models import FileSpec, GantryManifest, StackType
 

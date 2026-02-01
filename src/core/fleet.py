@@ -1,35 +1,30 @@
 # -----------------------------------------------------------------------------
-# THE FLEET MANAGER - ORCHESTRATOR (Self-Healing + V6.5 Consultation Loop)
+# THE FLEET MANAGER v2 - ASYNC ORCHESTRATOR (V6.5 + 2026 Architecture)
 # -----------------------------------------------------------------------------
-# Responsibility: Orchestrates the complete mission pipeline with self-repair.
-# Connects: Database -> Consultant -> Architect -> Policy -> Foundry -> Deploy
+# Full async implementation with V6.5 consultation loop, WebSocket support,
+# and 2026 architecture patterns (structured logging, resource protection).
 #
-# V6.5 UPGRADE: The Consultation Loop
-# Old Flow: Voice -> Build
-# New Flow: Voice -> CTO Proposal -> User Feedback -> Final Spec -> "Proceed" -> Build
-#
-# Self-Healing: When a build/deploy fails, the Architect analyzes the error and
-# generates a fixed manifest. This loop repeats up to MAX_RETRIES times.
-#
-# Progress Updates: Status is pushed every few seconds during long operations.
-# Thread-based concurrency: Each mission runs in its own thread.
-# Audio-first: Every outcome has a speech field for TTS.
-#
-# Environment Variables:
-# - GANTRY_SKIP_PUBLISH=true: Skip GitHub publishing (for tests/CI)
+# Features:
+# - Async/await throughout (non-blocking)
+# - V6.5 Consultation Loop (voice -> consult -> confirm -> build)
+# - WebSocket real-time updates
+# - Semaphore-based concurrency limiting
+# - Mission timeouts and self-healing
+# - Status query detection (natural language)
+# - Design image upload support
 # -----------------------------------------------------------------------------
 
+import asyncio
 import base64
 import os
 import re
-import threading
 import time
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
-# For Python 3.11+ compatibility, keep using timezone.utc instead of datetime.UTC
 from rich.console import Console
 
-from src.core.architect import Architect, ArchitectError
+from src.core.architect import Architect, ArchitectError, detect_design_target
 from src.core.consultant import Consultant, ConsultantResponse
 from src.core.db import (
     append_to_conversation,
@@ -43,6 +38,7 @@ from src.core.db import (
     init_db,
     list_missions,
     mark_ready_to_build,
+    search_missions,
     set_design_target,
     set_pending_question,
     update_mission_status,
@@ -51,29 +47,69 @@ from src.core.deployer import DeploymentError
 from src.core.foundry import MISSIONS_DIR, AuditFailedError, BuildTimeoutError, Foundry
 from src.core.policy import PolicyGate, SecurityViolation
 from src.core.publisher import Publisher, PublishError, SecurityBlock
+from src.domain.models import GantryManifest
+
+if TYPE_CHECKING:
+    from src.main_fastapi import ConnectionManager
 
 console = Console()
 
-# Design reference image filename in mission folder and in built repo
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+MAX_RETRIES = 3
+SKIP_PUBLISH = os.getenv("GANTRY_SKIP_PUBLISH", "").lower() == "true"
+MAX_CONCURRENT_MISSIONS = 3
+MISSION_TIMEOUT_SECONDS = 600  # 10 minutes
+PROGRESS_UPDATE_SECONDS = 5
 DESIGN_REFERENCE_NAME = "design-reference"
+
+# Status labels for TTS
+STATUS_STAGE_LABELS = {
+    "PENDING": "Queued",
+    "READY_TO_BUILD": "Ready to build",
+    "CONSULTING": "In consultation",
+    "AWAITING_INPUT": "Waiting for your confirmation",
+    "ARCHITECTING": "Drafting blueprint",
+    "VALIDATING": "Running security check",
+    "BUILDING": "Building and running tests",
+    "HEALING": "Self-healing (fixing issues)",
+    "DEPLOYING": "Deploying to Vercel",
+    "PUBLISHING": "Opening Pull Request",
+    "DEPLOYED": "Live",
+    "SUCCESS": "Complete",
+    "PR_OPENED": "PR opened for review",
+    "BLOCKED": "Blocked",
+    "FAILED": "Failed",
+    "TIMEOUT": "Timed out",
+    "PUBLISH_FAILED": "Publish failed",
+}
+
+IN_PROGRESS_STATUSES = frozenset(
+    {
+        "PENDING",
+        "READY_TO_BUILD",
+        "ARCHITECTING",
+        "VALIDATING",
+        "BUILDING",
+        "HEALING",
+        "DEPLOYING",
+        "PUBLISHING",
+    }
+)
+
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
 
 
 def _save_design_image(mission_id: str, image_base64: str, image_filename: str) -> str | None:
-    """
-    Save uploaded design image to mission folder so it can be included in the built repo.
-
-    Args:
-        mission_id: Mission/consultation ID.
-        image_base64: Base64-encoded image (with or without data URL prefix).
-        image_filename: Original filename (e.g. mockup.png).
-
-    Returns:
-        Path to saved file relative to mission folder, or None on failure.
-    """
+    """Save uploaded design image to mission folder."""
     if not image_base64 or not image_filename:
         return None
     try:
-        # Strip data URL prefix if present (e.g. data:image/png;base64,)
         raw = image_base64.strip()
         if raw.startswith("data:"):
             match = re.match(r"data:image/([^;]+);base64,", raw)
@@ -98,91 +134,21 @@ def _save_design_image(mission_id: str, image_base64: str, image_filename: str) 
         return None
 
 
-# In-progress statuses (build is still running)
-IN_PROGRESS_STATUSES = frozenset(
-    {
-        "PENDING",
-        "READY_TO_BUILD",
-        "ARCHITECTING",
-        "VALIDATING",
-        "BUILDING",
-        "HEALING",
-        "DEPLOYING",
-        "PUBLISHING",
-    }
-)
-
-# Human-readable stage labels for status responses
-STATUS_STAGE_LABELS = {
-    "PENDING": "Queued",
-    "READY_TO_BUILD": "Ready to build",
-    "CONSULTING": "In consultation",
-    "AWAITING_INPUT": "Waiting for your confirmation",
-    "ARCHITECTING": "Drafting blueprint",
-    "VALIDATING": "Running security check",
-    "BUILDING": "Building and running tests",
-    "HEALING": "Self-healing (fixing issues)",
-    "DEPLOYING": "Deploying to Vercel",
-    "PUBLISHING": "Opening Pull Request",
-    "DEPLOYED": "Live",
-    "SUCCESS": "Complete",
-    "PR_OPENED": "PR opened for review",
-    "BLOCKED": "Blocked",
-    "FAILED": "Failed",
-    "TIMEOUT": "Timed out",
-    "PUBLISH_FAILED": "Publish failed",
-}
-
-# Rough ETA / context per stage (for TTS/speech)
-STATUS_ETA_HINTS = {
-    "ARCHITECTING": "Usually 20–40 seconds for this step.",
-    "VALIDATING": "A few seconds.",
-    "BUILDING": "Typically 30–90 seconds.",
-    "HEALING": "May take another 30–60 seconds per attempt.",
-    "DEPLOYING": "Usually 15–30 seconds.",
-    "PUBLISHING": "Usually 10–20 seconds.",
-    "PENDING": "Build will start shortly.",
-    "READY_TO_BUILD": "Build will start when triggered.",
-}
-
-
 def _is_clear_projects_intent(text: str) -> bool:
-    """Return True if the message is a request to clear all projects from the database."""
+    """Return True if the message is a request to clear all projects."""
     if not text or len(text.strip()) < 4:
         return False
     t = text.strip().lower()
     phrases = (
-        "clear (all )?projects",
-        "clear the (projects )?list",
-        "clear (the )?database",
-        "clear everything",
-        "clear all",
-        "clear projects",
-        "clear missions",
+        r"clear (all )?projects",
+        r"clear the (projects )?list",
+        r"clear (the )?database",
+        r"clear everything",
+        r"clear all",
+        r"clear projects",
+        r"clear missions",
     )
     return any(re.search(p, t) for p in phrases)
-
-
-def _resolve_clear_projects_intent(user_input: str) -> dict | None:
-    """
-    If the user is asking to clear all projects, run clear_all_missions() and return
-    a response. Otherwise return None.
-    """
-    if not _is_clear_projects_intent(user_input):
-        return None
-    try:
-        n = clear_all_missions()
-        return {
-            "status": "STATUS_RESPONSE",
-            "speech": f"Cleared {n} projects from the database. Click Refresh in the Projects panel to see the empty list.",
-            "cleared": n,
-        }
-    except Exception as e:
-        console.print(f"[red][FLEET] Clear projects failed: {e}[/red]")
-        return {
-            "status": "error",
-            "speech": f"Could not clear projects: {e}. Try the Clear all button in the Projects panel, or run: python scripts/clear_missions.py",
-        }
 
 
 def _is_status_query(text: str) -> bool:
@@ -207,30 +173,21 @@ def _is_status_query(text: str) -> bool:
         "how long",
         "when will",
         "how much longer",
-        "stauts",
-        "statut",
-        "statue ",  # common typos
     )
     return any(p in t for p in patterns)
 
 
 def _extract_project_hint(text: str) -> str | None:
-    """Extract a project/app hint from a status question for matching missions."""
+    """Extract a project hint from a status question."""
     if not text or len(text.strip()) < 3:
         return None
     t = text.strip()
-    # Remove common question prefixes (case-insensitive); include typo "stauts"
     prefixes = (
-        r"what\s+is\s+the\s+sta(?:tu)?ts?\s+of\s+",
+        r"what\s+is\s+the\s+status\s+of\s+",
         r"what's\s+the\s+status\s+of\s+",
-        r"whats\s+the\s+status\s+of\s+",
         r"how\s+is\s+(?:the\s+)?",
         r"how's\s+(?:the\s+)?",
         r"status\s+of\s+(?:the\s+)?",
-        r"progress\s+of\s+(?:the\s+)?",
-        r"how\s+is\s+(?:the\s+)?build\s+for\s+",
-        r"is\s+(?:the\s+)?",
-        r"when\s+will\s+(?:the\s+)?",
     )
     hint = t
     for p in prefixes:
@@ -238,33 +195,18 @@ def _extract_project_hint(text: str) -> str | None:
         if m:
             hint = hint[m.end() :].strip()
             break
-    # Fallback: "X of Y" -> use Y (e.g. "what is the stauts of Linkedin website?" -> "Linkedin website")
-    if len(hint) > 30 and " of " in hint:
-        hint = hint.split(" of ", 1)[-1].strip()
-    # Remove trailing question words
     hint = re.sub(r"\s*(?:\?|\.|!)\s*$", "", hint)
-    generic = ("it", "that", "this", "build", "app", "build going", "going", "the build")
-    if not hint or len(hint) < 2 or hint.lower() in generic or hint.lower().startswith("build "):
+    generic = ("it", "that", "this", "build", "app", "going", "the build")
+    if not hint or len(hint) < 2 or hint.lower() in generic:
         return None
     return hint
 
 
-def _format_status_stage(status: str) -> str:
-    """Return human-readable stage label for a status."""
-    return STATUS_STAGE_LABELS.get(status, status.replace("_", " ").title())
-
-
-def _format_typical_eta(status: str) -> str:
-    """Return rough ETA hint for in-progress status."""
-    return STATUS_ETA_HINTS.get(status, "Builds usually take 1–3 minutes total.")
-
-
 def _elapsed_seconds(created_at: str | None) -> int | None:
-    """Return seconds since created_at, or None if not parseable."""
+    """Return seconds since created_at."""
     if not created_at:
         return None
     try:
-        # ISO format with or without Z
         dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
@@ -273,172 +215,133 @@ def _elapsed_seconds(created_at: str | None) -> int | None:
         return None
 
 
-def _resolve_status_query(user_input: str) -> dict | None:
-    """
-    If the user is asking for build status, look up the matching mission and return
-    a clear status response (stage, elapsed, ETA). Otherwise return None.
-    """
-    if not _is_status_query(user_input):
-        return None
-
-    hint = _extract_project_hint(user_input)
-    missions = find_missions_by_prompt_hint(hint, limit=15) if hint else list_missions(limit=20)
-
-    if not missions:
-        return {
-            "status": "STATUS_RESPONSE",
-            "speech": "I don't see any build matching that. Start one from the chat or check the Projects panel.",
-            "mission_id": None,
-        }
-
-    # Prefer in-progress build when user asks about status
-    in_progress = [m for m in missions if m.status in IN_PROGRESS_STATUSES]
-    mission = in_progress[0] if in_progress else missions[0]
-
-    stage = _format_status_stage(mission.status)
-    elapsed = _elapsed_seconds(mission.created_at)
-    eta_text = _format_typical_eta(mission.status) if mission.status in IN_PROGRESS_STATUSES else ""
-
-    # Friendly project label: use design_target (e.g. LINKEDIN -> "LinkedIn") or truncated prompt
-    if getattr(mission, "design_target", None):
-        project_label = mission.design_target.replace("_", " ").title()
-    else:
-        project_label = (mission.prompt[:40] + "…") if len(mission.prompt) > 40 else mission.prompt
-
-    if mission.status in IN_PROGRESS_STATUSES:
-        elapsed_part = f" In progress for {elapsed} seconds." if elapsed is not None else ""
-        speech = (
-            f'The build for "{project_label}" is currently {stage}. '
-            f"{mission.speech_output or stage}.{elapsed_part} {eta_text}"
-        ).strip()
-    elif mission.status in ("DEPLOYED", "SUCCESS", "PR_OPENED"):
-        speech = (
-            f'The build for "{project_label}" is complete. '
-            f"{mission.speech_output or 'Live and PR opened.'}"
-        )
-    else:
-        speech = f'The build for "{project_label}" is {stage}. {mission.speech_output or stage}.'
-
-    return {
-        "status": "STATUS_RESPONSE",
-        "speech": speech,
-        "mission_id": mission.id,
-        "stage": stage,
-        "mission_status": mission.status,
-        "elapsed_seconds": elapsed,
-        "project_label": project_label,
-    }
+# =============================================================================
+# ASYNC PROGRESS TRACKER
+# =============================================================================
 
 
-# Check if publishing should be skipped (for tests/CI)
-SKIP_PUBLISH = os.getenv("GANTRY_SKIP_PUBLISH", "").lower() == "true"
+class AsyncProgressTracker:
+    """Async progress tracker with WebSocket broadcast."""
 
-# Self-Healing Configuration
-MAX_RETRIES = 3  # Maximum heal attempts before giving up
-
-# Progress Update Interval
-PROGRESS_UPDATE_SECONDS = 5
-
-# Resource Protection (prevents server exhaustion)
-MAX_CONCURRENT_MISSIONS = 3  # Maximum parallel builds
-MISSION_TIMEOUT_SECONDS = 600  # 10 minutes max per mission (including all retries)
-
-
-class ProgressTracker:
-    """
-    Tracks mission progress and sends periodic status updates.
-
-    Purpose: Keep user informed during long-running operations.
-    Updates DB every PROGRESS_UPDATE_SECONDS with elapsed time.
-    """
-
-    def __init__(self, mission_id: str, phase: str) -> None:
+    def __init__(
+        self,
+        mission_id: str,
+        phase: str,
+        ws_manager: "ConnectionManager | None" = None,
+    ) -> None:
         self.mission_id = mission_id
         self.phase = phase
         self.start_time = time.time()
-        self._stop_event = threading.Event()
-        self._thread: threading.Thread | None = None
+        self._task: asyncio.Task | None = None
+        self._stop_event = asyncio.Event()
+        self._ws_manager = ws_manager
 
-    def _update_loop(self) -> None:
+    async def _update_loop(self) -> None:
         """Background loop to push progress updates."""
-        while not self._stop_event.wait(PROGRESS_UPDATE_SECONDS):
-            elapsed = int(time.time() - self.start_time)
-            update_mission_status(
-                self.mission_id, self.phase, f"{self.phase}... ({elapsed}s elapsed)"
-            )
-            console.print(f"[dim][PROGRESS] {self.phase} - {elapsed}s elapsed[/dim]")
+        while not self._stop_event.is_set():
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(),
+                    timeout=PROGRESS_UPDATE_SECONDS,
+                )
+                break
+            except TimeoutError:
+                elapsed = int(time.time() - self.start_time)
+                update_mission_status(
+                    self.mission_id, self.phase, f"{self.phase}... ({elapsed}s elapsed)"
+                )
+                if self._ws_manager:
+                    await self._ws_manager.broadcast(
+                        self.mission_id,
+                        {"type": "progress", "phase": self.phase, "elapsed": elapsed},
+                    )
 
-    def start(self) -> "ProgressTracker":
+    def start(self) -> "AsyncProgressTracker":
         """Start the progress tracker."""
-        self._thread = threading.Thread(
-            target=self._update_loop, daemon=True, name=f"progress-{self.mission_id[:8]}"
-        )
-        self._thread.start()
+        self._task = asyncio.create_task(self._update_loop())
         return self
 
-    def stop(self) -> None:
+    async def stop(self) -> None:
         """Stop the progress tracker."""
         self._stop_event.set()
-        if self._thread:
-            self._thread.join(timeout=1)
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
 
-    def update_phase(self, new_phase: str) -> None:
-        """Update the current phase."""
-        self.phase = new_phase
-        self.start_time = time.time()
-
-    def __enter__(self) -> "ProgressTracker":
-        """Context manager entry - start tracking."""
+    async def __aenter__(self) -> "AsyncProgressTracker":
         return self.start()
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Context manager exit - always stop tracking (prevents thread leak)."""
-        self.stop()
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        await self.stop()
+
+
+# =============================================================================
+# FLEET MANAGER V2 (ASYNC)
+# =============================================================================
 
 
 class FleetManager:
     """
-    The Fleet Orchestrator.
+    The Fleet Orchestrator v2 (Async).
 
     V6.5 Pipeline: Voice -> Consult -> Confirm -> Build -> Deploy
-
-    Old Pipeline: Voice Memo -> DB -> Architect -> Policy -> Foundry -> DB -> TTS
-    New Pipeline: Voice -> Consultant -> [Loop] -> Architect -> Policy -> Foundry -> DB -> TTS
-
-    All operations run in background threads to keep Flask responsive.
+    All operations are async for non-blocking execution.
+    WebSocket support for real-time updates.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, ws_manager: "ConnectionManager | None" = None) -> None:
         """Initialize the Fleet Manager."""
-        # Initialize database
         init_db()
 
-        # Initialize components
         self._foundry = Foundry()
         self._policy = PolicyGate()
         self._publisher = Publisher()
         self._architect: Architect | None = None
-        self._consultant: Consultant | None = None  # V6.5
+        self._consultant: Consultant | None = None
+        self._ws_manager = ws_manager
 
-        # Resource protection: limit concurrent missions to prevent server exhaustion
-        self._mission_semaphore = threading.Semaphore(MAX_CONCURRENT_MISSIONS)
-        self._active_missions: dict[str, float] = {}  # mission_id -> start_time
+        # Async semaphore for concurrency control
+        self._mission_semaphore = asyncio.Semaphore(MAX_CONCURRENT_MISSIONS)
+        self._active_missions: dict[str, float] = {}
 
         console.print(
-            f"[green][FLEET] Fleet Manager online (V6.5, max {MAX_CONCURRENT_MISSIONS} concurrent)[/green]"
+            f"[green][FLEET] Fleet Manager v2 (async) online "
+            f"(max {MAX_CONCURRENT_MISSIONS} concurrent)[/green]"
         )
 
+    def _get_architect(self) -> Architect:
+        """Lazy init Architect."""
+        if self._architect is None:
+            self._architect = Architect()
+        return self._architect
+
     def _get_consultant(self) -> Consultant:
-        """Lazy init Consultant (requires AWS creds)."""
+        """Lazy init Consultant."""
         if self._consultant is None:
             self._consultant = Consultant()
         return self._consultant
 
+    async def _broadcast(self, mission_id: str, status: str, message: str) -> None:
+        """Broadcast status update via WebSocket."""
+        if self._ws_manager:
+            await self._ws_manager.broadcast(
+                mission_id,
+                {"type": "status", "mission_id": mission_id, "status": status, "message": message},
+            )
+
+    async def _update_status(self, mission_id: str, status: str, speech: str) -> None:
+        """Update mission status in DB and broadcast via WebSocket."""
+        update_mission_status(mission_id, status, speech)
+        await self._broadcast(mission_id, status, speech)
+
     # =========================================================================
-    # V6.5: CONSULTATION LOOP METHODS
+    # V6.5: CONSULTATION LOOP
     # =========================================================================
 
-    def process_voice_input(
+    async def process_voice_input(
         self,
         user_input: str,
         deploy: bool = True,
@@ -447,184 +350,166 @@ class FleetManager:
         image_filename: str | None = None,
     ) -> dict:
         """
-        Process voice/chat input through the Consultation Loop.
-
-        This is the V6.5 entry point that replaces direct dispatch_mission calls.
+        Process voice/chat input through the V6.5 Consultation Loop.
 
         Flow:
-        1. Check if there's an active consultation (pending question)
-        2. If yes: This input is the ANSWER, continue conversation
-        3. If no: This is a NEW REQUEST, start consultation
-        4. If consultant says READY_TO_BUILD: Trigger build
-        5. Uploaded image is saved to mission folder and included in built repo.
-
-        Args:
-            user_input: The voice memo or chat message.
-            deploy: Whether to deploy to Vercel.
-            publish: Whether to publish to GitHub.
-            image_base64: Optional base64-encoded design image (mockup/screenshot).
-            image_filename: Optional original filename for the image.
-
-        Returns:
-            dict with:
-            - status: CONSULTING | AWAITING_INPUT | BUILDING | etc.
-            - speech: TTS-friendly response
-            - mission_id: The consultation/mission ID
-            - question: Optional question for user (if AWAITING_INPUT)
+        1. Check for clear projects intent
+        2. Check for status query
+        3. Check for active consultation
+        4. Start new or continue existing consultation
+        5. If ready to build, dispatch build
         """
         console.print(f"[cyan][FLEET] Processing: {user_input[:50]}...[/cyan]")
 
-        # If user is asking to clear projects, do it and return (don't send to Consultant)
-        clear_response = _resolve_clear_projects_intent(user_input)
-        if clear_response is not None:
-            console.print("[cyan][FLEET] Clear projects intent; clearing DB.[/cyan]")
-            return clear_response
+        # Handle clear projects intent
+        if _is_clear_projects_intent(user_input):
+            return self._handle_clear_projects()
 
-        # If user is asking for build status, answer from DB instead of Consultant
-        status_response = _resolve_status_query(user_input)
-        if status_response is not None:
-            console.print("[cyan][FLEET] Status query detected; returning build status.[/cyan]")
-            return status_response
+        # Handle status query
+        if _is_status_query(user_input):
+            return self._handle_status_query(user_input)
 
         # Check for active consultation
         active = get_active_consultation()
 
         if active and active.pending_question:
-            # This is an ANSWER to a pending question
             console.print(f"[cyan][FLEET] Continuing consultation: {active.id[:8]}[/cyan]")
-            return self._continue_consultation(
-                active.id,
-                user_input,
-                deploy=deploy,
-                publish=publish,
-                image_base64=image_base64,
-                image_filename=image_filename,
+            return await self._continue_consultation(
+                active.id, user_input, deploy, publish, image_base64, image_filename
             )
         else:
-            # This is a NEW REQUEST
             console.print("[cyan][FLEET] Starting new consultation[/cyan]")
-            return self._start_consultation(
-                user_input,
-                deploy=deploy,
-                publish=publish,
-                image_base64=image_base64,
-                image_filename=image_filename,
+            return await self._start_consultation(
+                user_input, deploy, publish, image_base64, image_filename
             )
 
-    def _start_consultation(
-        self,
-        prompt: str,
-        deploy: bool = True,
-        publish: bool = True,
-        image_base64: str | None = None,
-        image_filename: str | None = None,
-    ) -> dict:
-        """
-        Start a new consultation.
-
-        Creates a consultation record and analyzes the request.
-        Saves uploaded design image to mission folder for inclusion in built repo.
-        """
-        # Detect design target
-        from src.core.architect import detect_design_target
-
-        design_target = detect_design_target(prompt)
-
-        # Create consultation in DB
-        mission_id = create_consultation(prompt, design_target)
-
-        # Save uploaded design image so it is included in the built repo
-        if image_base64 and image_filename:
-            _save_design_image(mission_id, image_base64, image_filename)
-
-        # Build conversation
-        conversation = [{"role": "user", "content": prompt}]
-
-        # Get consultant analysis
-        consultant = self._get_consultant()
-        response = consultant.analyze(conversation)
-
-        # Update design target if detected
-        if response.design_target and not design_target:
-            set_design_target(mission_id, response.design_target)
-            design_target = response.design_target
-
-        return self._handle_consultant_response(
-            mission_id, response, conversation, deploy=deploy, publish=publish
-        )
-
-    def _continue_consultation(
-        self,
-        mission_id: str,
-        user_input: str,
-        deploy: bool = True,
-        publish: bool = True,
-        image_base64: str | None = None,
-        image_filename: str | None = None,
-    ) -> dict:
-        """
-        Continue an existing consultation with user's answer.
-        Saves uploaded design image to mission folder if provided.
-        """
-        # Get current mission state
-        mission = get_mission(mission_id)
-        if not mission:
+    def _handle_clear_projects(self) -> dict:
+        """Handle clear projects intent."""
+        try:
+            n = clear_all_missions()
             return {
-                "status": "error",
-                "speech": "Session not found. Please start again.",
+                "status": "STATUS_RESPONSE",
+                "speech": f"Cleared {n} projects. Click Refresh to see the empty list.",
+                "cleared": n,
+            }
+        except Exception as e:
+            return {"status": "error", "speech": f"Could not clear projects: {e}"}
+
+    def _handle_status_query(self, user_input: str) -> dict:
+        """Handle status query from user."""
+        hint = _extract_project_hint(user_input)
+        missions = find_missions_by_prompt_hint(hint, limit=15) if hint else list_missions(limit=20)
+
+        if not missions:
+            return {
+                "status": "STATUS_RESPONSE",
+                "speech": "No builds found. Start one from the chat.",
                 "mission_id": None,
             }
 
-        # Save uploaded design image so it is included in the built repo
+        in_progress = [m for m in missions if m.status in IN_PROGRESS_STATUSES]
+        mission = in_progress[0] if in_progress else missions[0]
+
+        stage = STATUS_STAGE_LABELS.get(mission.status, mission.status)
+        elapsed = _elapsed_seconds(mission.created_at)
+        project_label = getattr(mission, "design_target", None) or mission.prompt[:40]
+
+        if mission.status in IN_PROGRESS_STATUSES:
+            elapsed_part = f" In progress for {elapsed}s." if elapsed else ""
+            speech = f'Building "{project_label}": {stage}.{elapsed_part}'
+        else:
+            speech = f'"{project_label}": {stage}. {mission.speech_output or ""}'
+
+        return {
+            "status": "STATUS_RESPONSE",
+            "speech": speech,
+            "mission_id": mission.id,
+            "stage": stage,
+            "mission_status": mission.status,
+        }
+
+    async def _start_consultation(
+        self,
+        prompt: str,
+        deploy: bool,
+        publish: bool,
+        image_base64: str | None,
+        image_filename: str | None,
+    ) -> dict:
+        """Start a new consultation."""
+        design_target = detect_design_target(prompt)
+        mission_id = create_consultation(prompt, design_target)
+
         if image_base64 and image_filename:
             _save_design_image(mission_id, image_base64, image_filename)
 
-        # Clear pending question
-        clear_pending_question(mission_id)
-
-        # Append user response to history
-        append_to_conversation(mission_id, "user", user_input)
-
-        # Build conversation from history
-        conversation = mission.conversation_history or []
-        conversation.append({"role": "user", "content": user_input})
-
-        # Analyze with consultant
+        conversation = [{"role": "user", "content": prompt}]
         consultant = self._get_consultant()
         response = consultant.analyze(conversation)
 
-        return self._handle_consultant_response(
-            mission_id, response, conversation, deploy=deploy, publish=publish
+        if response.design_target and not design_target:
+            set_design_target(mission_id, response.design_target)
+
+        return await self._handle_consultant_response(
+            mission_id, response, conversation, deploy, publish
         )
 
-    def _handle_consultant_response(
+    async def _continue_consultation(
+        self,
+        mission_id: str,
+        user_input: str,
+        deploy: bool,
+        publish: bool,
+        image_base64: str | None,
+        image_filename: str | None,
+    ) -> dict:
+        """Continue an existing consultation."""
+        mission = get_mission(mission_id)
+        if not mission:
+            return {"status": "error", "speech": "Session not found.", "mission_id": None}
+
+        if image_base64 and image_filename:
+            _save_design_image(mission_id, image_base64, image_filename)
+
+        clear_pending_question(mission_id)
+        append_to_conversation(mission_id, "user", user_input)
+
+        conversation = mission.conversation_history or []
+        conversation.append({"role": "user", "content": user_input})
+
+        consultant = self._get_consultant()
+        response = consultant.analyze(conversation)
+
+        return await self._handle_consultant_response(
+            mission_id, response, conversation, deploy, publish
+        )
+
+    async def _handle_consultant_response(
         self,
         mission_id: str,
         response: ConsultantResponse,
         conversation: list[dict],
-        deploy: bool = True,
-        publish: bool = True,
+        deploy: bool,
+        publish: bool,
     ) -> dict:
-        """
-        Handle the consultant's response and decide next step.
-        """
-        # Append assistant response to history
+        """Handle the consultant's response."""
         append_to_conversation(mission_id, "assistant", response.speech)
 
         if response.status == "READY_TO_BUILD":
-            # User confirmed - proceed to build
             console.print(f"[green][FLEET] Ready to build: {mission_id[:8]}[/green]")
             mark_ready_to_build(mission_id)
 
-            # Get build prompt from conversation
             consultant = self._get_consultant()
             build_prompt = consultant.get_build_prompt(conversation)
             design_target = consultant.get_design_target(conversation)
 
-            # Dispatch the actual build
-            self._dispatch_build(
-                mission_id, build_prompt, design_target, deploy=deploy, publish=publish
+            # Dispatch async build (store reference to prevent GC)
+            task = asyncio.create_task(
+                self._run_mission_with_target(
+                    mission_id, build_prompt, design_target, deploy, publish
+                )
             )
+            task.add_done_callback(lambda _: None)
 
             return {
                 "status": "BUILDING",
@@ -634,7 +519,6 @@ class FleetManager:
             }
 
         elif response.status in ("NEEDS_INPUT", "NEEDS_CONFIRMATION"):
-            # Ask user a question
             console.print(f"[yellow][FLEET] Awaiting input: {mission_id[:8]}[/yellow]")
             set_pending_question(
                 mission_id, response.question or response.speech, response.proposed_stack
@@ -651,450 +535,252 @@ class FleetManager:
                 "confidence": response.confidence,
             }
 
-        else:
-            # Unknown status - treat as needs input
-            return {
-                "status": "AWAITING_INPUT",
-                "speech": response.speech,
-                "mission_id": mission_id,
-                "question": response.question,
-            }
+        return {
+            "status": "AWAITING_INPUT",
+            "speech": response.speech,
+            "mission_id": mission_id,
+            "question": response.question,
+        }
 
-    def _dispatch_build(
-        self,
-        mission_id: str,
-        prompt: str,
-        design_target: str | None = None,
-        deploy: bool = True,
-        publish: bool = True,
-    ) -> None:
-        """
-        Dispatch the actual build after consultation is complete.
+    # =========================================================================
+    # MISSION MANAGEMENT
+    # =========================================================================
 
-        Runs in background thread like the original dispatch_mission.
-        """
-        console.print(
-            f"[cyan][FLEET] Dispatching build: {mission_id[:8]} (target={design_target})[/cyan]"
-        )
+    def clear_projects(self) -> int:
+        """Clear all missions from the database."""
+        return clear_all_missions()
 
-        # Update status
-        update_mission_status(mission_id, "BUILDING", "Clone protocol initiated.")
-
-        # Spawn background thread
-        thread = threading.Thread(
-            target=self._run_mission_with_target,
-            args=(mission_id, prompt, design_target, deploy, publish),
-            name=f"mission-{mission_id[:8]}",
-            daemon=True,
-        )
-        thread.start()
-
-    def retry_failed_mission(
-        self,
-        mission_id: str,
-        deploy: bool = True,
-        publish: bool = True,
+    async def retry_failed_mission(
+        self, mission_id: str, deploy: bool = True, publish: bool = True
     ) -> dict:
-        """
-        Re-run a failed mission from scratch (new blueprint, full self-healing again).
-
-        Only missions with status FAILED, BLOCKED, TIMEOUT, or PUBLISH_FAILED can be retried.
-        Runs in background thread; returns immediately with status BUILDING.
-        """
+        """Retry a failed mission."""
         mission = get_mission(mission_id)
         if not mission:
-            return {
-                "status": "error",
-                "speech": "Mission not found.",
-                "mission_id": mission_id,
-            }
+            return {"status": "error", "speech": "Mission not found.", "mission_id": mission_id}
+
         retryable = {"FAILED", "BLOCKED", "TIMEOUT", "PUBLISH_FAILED"}
         if mission.status not in retryable:
             return {
                 "status": "error",
-                "speech": f"Cannot retry: mission is {mission.status}. Only failed or blocked missions can be retried.",
+                "speech": f"Cannot retry: mission is {mission.status}.",
                 "mission_id": mission_id,
             }
-        prompt = mission.prompt
-        design_target = getattr(mission, "design_target", None) or None
-        update_mission_status(
-            mission_id,
-            "BUILDING",
-            "Retrying build from scratch. Drafting new blueprint.",
+
+        await self._update_status(mission_id, "BUILDING", "Retrying build from scratch.")
+
+        # Store reference to prevent GC
+        task = asyncio.create_task(
+            self._run_mission_with_target(
+                mission_id,
+                mission.prompt,
+                getattr(mission, "design_target", None),
+                deploy,
+                publish,
+            )
         )
-        thread = threading.Thread(
-            target=self._run_mission_with_target,
-            args=(mission_id, prompt, design_target, deploy, publish),
-            name=f"retry-{mission_id[:8]}",
-            daemon=True,
-        )
-        thread.start()
+        task.add_done_callback(lambda _: None)
+
         return {
             "status": "BUILDING",
-            "speech": "Retrying build. Watch the Projects panel for progress.",
+            "speech": "Retrying build. Watch for progress.",
             "mission_id": mission_id,
         }
 
-    def clear_projects(self) -> int:
-        """Clear all missions from the database. Returns number cleared."""
-        return clear_all_missions()
+    def search_missions_by_keywords(self, keywords: list[str], limit: int = 5) -> list:
+        """Search missions by keywords."""
+        return search_missions(keywords, limit=limit)
 
-    def _run_mission_with_target(
+    # =========================================================================
+    # PUBLIC API: DISPATCH MISSION
+    # =========================================================================
+
+    async def dispatch_mission(self, prompt: str, deploy: bool = True, publish: bool = True) -> str:
+        """
+        Dispatch a new mission (direct build, bypassing consultation).
+
+        Creates DB entry and spawns async task.
+        Returns immediately with mission ID.
+        """
+        mission_id = create_mission(prompt)
+        console.print(
+            f"[cyan][FLEET] Mission queued: {mission_id[:8]} "
+            f"(deploy={deploy}, publish={publish})[/cyan]"
+        )
+
+        # Store reference to prevent GC
+        task = asyncio.create_task(self._run_mission(mission_id, prompt, deploy, publish))
+        task.add_done_callback(lambda _: None)
+        return mission_id
+
+    # =========================================================================
+    # MISSION EXECUTION
+    # =========================================================================
+
+    async def _run_mission(self, mission_id: str, prompt: str, deploy: bool, publish: bool) -> None:
+        """Execute mission pipeline (direct build without design target)."""
+        await self._run_mission_with_target(mission_id, prompt, None, deploy, publish)
+
+    async def _run_mission_with_target(
         self,
         mission_id: str,
         prompt: str,
-        design_target: str | None = None,
-        deploy: bool = True,
-        publish: bool = True,
-    ) -> None:
-        """
-        Run mission with design target injection.
-
-        V6.5: Passes design_target to the Architect for clone protocol.
-        Protected by semaphore to limit concurrent builds.
-        Has overall mission timeout to prevent runaway builds.
-        """
-        # Acquire semaphore (blocks if MAX_CONCURRENT_MISSIONS already running)
-        acquired = self._mission_semaphore.acquire(timeout=60)
-        if not acquired:
-            console.print(f"[red][Mission {mission_id[:8]}] Queue full, try again later[/red]")
-            update_mission_status(
-                mission_id, "FAILED", "Server busy. Too many concurrent builds. Try again later."
-            )
-            return
-
-        # Track mission start time for overall timeout
-        mission_start = time.time()
-        self._active_missions[mission_id] = mission_start
-
-        try:
-            # Phase 1: Architecting with design target
-            console.print(f"[cyan][Mission {mission_id[:8]}] Drafting blueprint...[/cyan]")
-            update_mission_status(
-                mission_id,
-                "ARCHITECTING",
-                f"Drafting {design_target or 'custom'} blueprint. Stand by.",
-            )
-
-            with ProgressTracker(mission_id, "ARCHITECTING"):
-                architect = self._get_architect()
-                # V6.5: Pass design target for clone protocol
-                manifest = architect.draft_blueprint(prompt, design_target=design_target)
-
-            # Check mission timeout before continuing
-            if time.time() - mission_start > MISSION_TIMEOUT_SECONDS:
-                raise BuildTimeoutError(f"Mission timeout exceeded ({MISSION_TIMEOUT_SECONDS}s)")
-
-            # Continue with existing build pipeline (same as _run_mission)
-            self._execute_build_pipeline(mission_id, manifest, deploy, publish, mission_start)
-
-        except ArchitectError:
-            console.print(f"[red][Mission {mission_id[:8]}] Architect failed[/red]")
-            update_mission_status(
-                mission_id, "FAILED", "Mission aborted. Blueprint generation failed."
-            )
-        except BuildTimeoutError as e:
-            console.print(f"[red][Mission {mission_id[:8]}] Mission timeout: {e}[/red]")
-            update_mission_status(
-                mission_id, "TIMEOUT", f"Mission exceeded {MISSION_TIMEOUT_SECONDS}s limit."
-            )
-        except Exception as e:
-            console.print(f"[red][Mission {mission_id[:8]}] Error: {e}[/red]")
-            update_mission_status(mission_id, "FAILED", f"Mission aborted. Error: {str(e)[:100]}")
-        finally:
-            # Always release semaphore and clean up
-            self._active_missions.pop(mission_id, None)
-            self._mission_semaphore.release()
-            console.print(f"[dim][Mission {mission_id[:8]}] Slot released[/dim]")
-
-    def _execute_build_pipeline(
-        self,
-        mission_id: str,
-        manifest,
+        design_target: str | None,
         deploy: bool,
         publish: bool,
-        mission_start: float,
     ) -> None:
-        """
-        Execute the build/deploy/publish pipeline.
+        """Execute mission pipeline with design target (V6.5)."""
+        async with self._mission_semaphore:
+            mission_start = time.time()
+            self._active_missions[mission_id] = mission_start
 
-        Extracted from _run_mission to avoid code duplication.
-        Uses context managers for ProgressTracker to prevent thread leaks.
-        Checks mission timeout to prevent runaway builds.
-        """
-        import traceback
+            try:
+                # Phase 1: Architecting
+                await self._update_status(
+                    mission_id, "ARCHITECTING", f"Drafting {design_target or 'custom'} blueprint."
+                )
 
-        architect = self._get_architect()
-
-        try:
-            # Phase 2: Policy Check
-            console.print(f"[cyan][Mission {mission_id[:8]}] Policy check...[/cyan]")
-            update_mission_status(mission_id, "VALIDATING", "Running security check.")
-            self._policy.validate(manifest)
-
-            # Phase 3: Build with Self-Healing Loop
-            attempt = 0
-            mission_complete = False
-            result = None
-            deploy_url = None
-
-            while attempt < MAX_RETRIES and not mission_complete:
-                # Check mission timeout before each attempt
-                elapsed = time.time() - mission_start
-                if elapsed > MISSION_TIMEOUT_SECONDS:
-                    raise BuildTimeoutError(
-                        f"Mission timeout ({int(elapsed)}s > {MISSION_TIMEOUT_SECONDS}s limit)"
+                async with AsyncProgressTracker(mission_id, "ARCHITECTING", self._ws_manager):
+                    architect = self._get_architect()
+                    manifest = await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: architect.draft_blueprint(prompt, design_target=design_target)
                     )
 
-                attempt += 1
-                console.print(
-                    f"[cyan][Mission {mission_id[:8]}] Building (attempt {attempt})...[/cyan]"
-                )
-                update_mission_status(
-                    mission_id,
-                    "BUILDING",
-                    f"Building {manifest.project_name}. Attempt {attempt}.",
-                )
+                if time.time() - mission_start > MISSION_TIMEOUT_SECONDS:
+                    raise BuildTimeoutError("Mission timeout exceeded")
 
-                # Use context manager to ensure tracker is always stopped
-                with ProgressTracker(mission_id, "BUILDING"):
-                    try:
-                        result = self._foundry.build(manifest, mission_id, deploy=deploy)
-                        console.print(f"[green][Mission {mission_id[:8]}] Build PASSED[/green]")
-                        deploy_url = result.deploy_url if result else None
-                        mission_complete = True
+                # Phase 2: Validation
+                await self._phase_validate(mission_id, manifest)
 
-                    except AuditFailedError as e:
-                        if attempt < MAX_RETRIES:
-                            self._heal_and_retry(
-                                mission_id, architect, manifest, e.output, attempt, "Audit"
-                            )
-                            manifest = architect.heal_blueprint(manifest, e.output)
-                        else:
-                            console.print(f"[red][Mission {mission_id[:8]}] Exhausted[/red]")
+                # Phase 3: Build with self-healing
+                result = await self._phase_build(mission_id, manifest, deploy, mission_start)
+                if not result:
+                    return
 
-                    except DeploymentError as e:
-                        if attempt < MAX_RETRIES:
-                            error_context = f"Deployment failed: {e!s}"
-                            self._heal_and_retry(
-                                mission_id, architect, manifest, error_context, attempt, "Deploy"
-                            )
-                            try:
-                                manifest = architect.heal_blueprint(manifest, error_context)
-                            except ArchitectError:
-                                pass
-                        else:
-                            console.print(f"[red][Mission {mission_id[:8]}] Exhausted[/red]")
+                # Phase 4: Publishing
+                pr_url = await self._phase_publish(mission_id, manifest, publish, result.deploy_url)
 
-                    except BuildTimeoutError:
-                        # Re-raise to outer handler
-                        raise
+                # Final status
+                await self._finalize_mission(mission_id, result.deploy_url, pr_url)
 
-                    except Exception:
-                        if attempt < MAX_RETRIES:
-                            error_trace = traceback.format_exc()
-                            self._heal_and_retry(
-                                mission_id, architect, manifest, error_trace, attempt, "Build"
-                            )
-                            try:
-                                manifest = architect.heal_blueprint(manifest, error_trace)
-                            except ArchitectError:
-                                pass
+            except ArchitectError as e:
+                console.print(f"[red][Mission {mission_id[:8]}] Architect failed: {e}[/red]")
+                await self._update_status(mission_id, "FAILED", "Blueprint generation failed.")
 
-            # Check success
-            if not mission_complete:
-                update_mission_status(mission_id, "FAILED", f"Failed after {MAX_RETRIES} attempts.")
-                return
+            except BuildTimeoutError:
+                await self._update_status(mission_id, "TIMEOUT", "Mission timeout exceeded.")
 
-            # Phase 4: Publishing
-            pr_url = None
-            should_skip = SKIP_PUBLISH or not publish
-            if not should_skip and self._publisher.is_configured():
-                console.print(f"[cyan][Mission {mission_id[:8]}] Opening PR...[/cyan]")
-                update_mission_status(mission_id, "PUBLISHING", "Opening Pull Request.")
+            except SecurityViolation:
+                await self._update_status(mission_id, "BLOCKED", "Policy violation.")
 
-                with ProgressTracker(mission_id, "PUBLISHING"):
-                    evidence_path = MISSIONS_DIR / mission_id
-                    try:
-                        pr_url = self._publisher.publish_mission(
-                            manifest, str(evidence_path), mission_id=mission_id
-                        )
-                    except Exception as pub_err:
-                        console.print(f"[red]Publishing error: {pub_err}[/red]")
+            except Exception as e:
+                console.print(f"[red][Mission {mission_id[:8]}] Error: {e}[/red]")
+                await self._update_status(mission_id, "FAILED", f"Error: {str(e)[:100]}")
 
-            # Final status
-            if deploy_url and pr_url:
-                update_mission_status(mission_id, "DEPLOYED", f"Live at {deploy_url}. PR opened.")
-            elif deploy_url:
-                update_mission_status(mission_id, "DEPLOYED", f"Live at {deploy_url}")
-            elif pr_url:
-                update_mission_status(mission_id, "PR_OPENED", "PR opened for review.")
-            else:
-                update_mission_status(mission_id, "SUCCESS", "Build verified.")
+            finally:
+                self._active_missions.pop(mission_id, None)
 
-        except SecurityViolation:
-            update_mission_status(mission_id, "BLOCKED", "Policy violation.")
-
-        except BuildTimeoutError:
-            update_mission_status(mission_id, "TIMEOUT", "Build or mission timeout exceeded.")
-
-        except SecurityBlock:
-            update_mission_status(mission_id, "BLOCKED", "Green-only rule violation.")
-
-        except PublishError:
-            update_mission_status(mission_id, "PUBLISH_FAILED", "GitHub push failed.")
-
-    def _get_architect(self) -> Architect:
-        """Lazy init Architect (requires AWS creds)."""
-        if self._architect is None:
-            self._architect = Architect()
-        return self._architect
-
-    def _heal_and_retry(
-        self,
-        mission_id: str,
-        architect: Architect,
-        manifest,
-        error_log: str,
-        attempt: int,
-        error_type: str,
-    ) -> None:
-        """
-        Common self-healing logic for both audit and deployment failures.
-
-        Updates mission status and logs the healing attempt.
-        """
-        console.print(
-            f"[yellow][Mission {mission_id[:8]}] Engaging self-repair for {error_type}...[/yellow]"
-        )
-        update_mission_status(
-            mission_id,
-            "HEALING",
-            f"{error_type} failed. Self-repair attempt {attempt} of {MAX_RETRIES}.",
-        )
-
-    def dispatch_mission(self, prompt: str, deploy: bool = True, publish: bool = True) -> str:
-        """
-        Dispatch a new mission.
-
-        Creates DB entry (PENDING) and spawns background thread.
-        Returns immediately with mission ID.
-
-        Args:
-            prompt: The voice memo / build request.
-            deploy: Whether to deploy to Vercel (default True, set False for tests).
-            publish: Whether to publish to GitHub (default True for real users,
-                     set False for tests/CI).
-
-        Returns:
-            Mission ID for tracking.
-        """
-        # Create DB entry
-        mission_id = create_mission(prompt)
-
-        console.print(
-            f"[cyan][FLEET] Mission queued: {mission_id[:8]} (deploy={deploy}, publish={publish})[/cyan]"
-        )
-
-        # Spawn background thread
-        thread = threading.Thread(
-            target=self._run_mission,
-            args=(mission_id, prompt, deploy, publish),
-            name=f"mission-{mission_id[:8]}",
-            daemon=True,
-        )
-        thread.start()
-
-        return mission_id
-
-    def _run_mission(
-        self, mission_id: str, prompt: str, deploy: bool = True, publish: bool = True
-    ) -> None:
-        """
-        Execute the complete mission pipeline with SELF-HEALING.
-
-        When a build/deploy fails, the Architect analyzes the error and generates
-        a fixed manifest. This loop repeats up to MAX_RETRIES times.
-
-        Flow: Draft → Build → [Fail → Heal → Retry] → Deploy → Publish
-
-        Protected by semaphore to limit concurrent builds.
-        Has overall mission timeout to prevent runaway builds.
-
-        Args:
-            mission_id: The UUID of the mission.
-            prompt: The voice memo.
-            deploy: Whether to deploy to Vercel.
-            publish: Whether to publish to GitHub after successful build.
-        """
-        import traceback
-
-        # Acquire semaphore (blocks if MAX_CONCURRENT_MISSIONS already running)
-        acquired = self._mission_semaphore.acquire(timeout=60)
-        if not acquired:
-            console.print(f"[red][Mission {mission_id[:8]}] Queue full, try again later[/red]")
-            update_mission_status(
-                mission_id, "FAILED", "Server busy. Too many concurrent builds. Try again later."
-            )
-            return
-
-        # Track mission start time for overall timeout
-        mission_start = time.time()
-        self._active_missions[mission_id] = mission_start
+    async def _phase_validate(self, mission_id: str, manifest: GantryManifest) -> bool:
+        """Validate manifest against policy."""
+        await self._update_status(mission_id, "VALIDATING", "Running security check.")
 
         try:
-            # Phase 1: Initial Architecting (with progress tracking)
-            console.print(f"[cyan][Mission {mission_id[:8]}] Drafting blueprint...[/cyan]")
-            update_mission_status(mission_id, "ARCHITECTING", "Drafting blueprint. Stand by.")
+            self._policy.validate(manifest)
+            return True
+        except SecurityViolation as e:
+            console.print(f"[red][Mission {mission_id[:8]}] Policy violation: {e}[/red]")
+            await self._update_status(mission_id, "BLOCKED", "Policy violation.")
+            return False
 
-            with ProgressTracker(mission_id, "ARCHITECTING"):
-                architect = self._get_architect()
-                manifest = architect.draft_blueprint(prompt)
+    async def _phase_build(
+        self,
+        mission_id: str,
+        manifest: GantryManifest,
+        deploy: bool,
+        mission_start: float,
+    ):
+        """Build with self-healing loop."""
+        architect = self._get_architect()
+        current_manifest = manifest
 
-            # Check mission timeout before continuing
+        for attempt in range(1, MAX_RETRIES + 1):
             if time.time() - mission_start > MISSION_TIMEOUT_SECONDS:
-                raise BuildTimeoutError(f"Mission timeout exceeded ({MISSION_TIMEOUT_SECONDS}s)")
+                raise BuildTimeoutError("Mission timeout during build")
 
-            # Delegate to shared build pipeline
-            self._execute_build_pipeline(mission_id, manifest, deploy, publish, mission_start)
-
-        except ArchitectError:
-            console.print(f"[red][Mission {mission_id[:8]}] Architect failed[/red]")
-            update_mission_status(
-                mission_id, "FAILED", "Mission aborted. Blueprint generation failed."
+            await self._update_status(
+                mission_id,
+                "BUILDING",
+                f"Building {current_manifest.project_name}. Attempt {attempt}.",
             )
 
-        except SecurityViolation:
-            console.print(f"[red][Mission {mission_id[:8]}] Policy violation[/red]")
-            update_mission_status(mission_id, "BLOCKED", "Request denied. Policy violation.")
+            async with AsyncProgressTracker(mission_id, "BUILDING", self._ws_manager):
+                try:
+                    # Capture current_manifest by value using default arg
+                    m = current_manifest
+                    result = await asyncio.get_event_loop().run_in_executor(
+                        None, lambda m=m: self._foundry.build(m, mission_id, deploy=deploy)
+                    )
+                    console.print(f"[green][Mission {mission_id[:8]}] Build PASSED[/green]")
+                    return result
 
-        except BuildTimeoutError as e:
-            console.print(f"[red][Mission {mission_id[:8]}] Timeout: {e}[/red]")
-            update_mission_status(
-                mission_id, "TIMEOUT", f"Mission exceeded {MISSION_TIMEOUT_SECONDS}s limit."
-            )
+                except (AuditFailedError, DeploymentError) as e:
+                    error_log = str(e) if isinstance(e, DeploymentError) else e.output
 
-        except SecurityBlock as e:
-            console.print(f"[red][Mission {mission_id[:8]}] Security block: {e}[/red]")
-            update_mission_status(
-                mission_id, "BLOCKED", "Publishing blocked. Green-only rule violation."
-            )
+                    if attempt < MAX_RETRIES:
+                        await self._update_status(
+                            mission_id, "HEALING", f"Build failed. Self-repair attempt {attempt}."
+                        )
+                        try:
+                            # Capture variables by value
+                            m, err = current_manifest, error_log
+                            current_manifest = await asyncio.get_event_loop().run_in_executor(
+                                None, lambda m=m, err=err: architect.heal_blueprint(m, err)
+                            )
+                        except ArchitectError:
+                            pass
 
-        except PublishError as e:
-            console.print(f"[red][Mission {mission_id[:8]}] Publish failed: {e}[/red]")
-            update_mission_status(
-                mission_id, "PUBLISH_FAILED", "Build passed but GitHub push failed."
-            )
+                except BuildTimeoutError:
+                    raise
 
-        except Exception as e:
-            console.print(f"[red][Mission {mission_id[:8]}] Critical error: {e}[/red]")
-            console.print(f"[dim]{traceback.format_exc()}[/dim]")
-            update_mission_status(
-                mission_id, "CRITICAL_FAILURE", f"Mission aborted. Error: {str(e)[:100]}"
-            )
+        await self._update_status(mission_id, "FAILED", f"Failed after {MAX_RETRIES} attempts.")
+        return None
 
-        finally:
-            # Always release semaphore and clean up
-            self._active_missions.pop(mission_id, None)
-            self._mission_semaphore.release()
-            console.print(f"[dim][Mission {mission_id[:8]}] Slot released[/dim]")
+    async def _phase_publish(
+        self,
+        mission_id: str,
+        manifest: GantryManifest,
+        publish: bool,
+        deploy_url: str | None,
+    ) -> str | None:
+        """Publish to GitHub via PR."""
+        if SKIP_PUBLISH or not publish or not self._publisher.is_configured():
+            return None
+
+        await self._update_status(mission_id, "PUBLISHING", "Opening Pull Request.")
+
+        async with AsyncProgressTracker(mission_id, "PUBLISHING", self._ws_manager):
+            try:
+                evidence_path = MISSIONS_DIR / mission_id
+                pr_url = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self._publisher.publish_mission(
+                        manifest, str(evidence_path), mission_id=mission_id
+                    ),
+                )
+                console.print(f"[green][Mission {mission_id[:8]}] PR opened: {pr_url}[/green]")
+                return pr_url
+            except (SecurityBlock, PublishError) as e:
+                console.print(f"[red][Mission {mission_id[:8]}] Publish failed: {e}[/red]")
+                return None
+
+    async def _finalize_mission(
+        self, mission_id: str, deploy_url: str | None, pr_url: str | None
+    ) -> None:
+        """Set final mission status."""
+        if deploy_url and pr_url:
+            await self._update_status(mission_id, "DEPLOYED", f"Live at {deploy_url}. PR opened.")
+        elif deploy_url:
+            await self._update_status(mission_id, "DEPLOYED", f"Live at {deploy_url}")
+        elif pr_url:
+            await self._update_status(mission_id, "PR_OPENED", "PR opened for review.")
+        else:
+            await self._update_status(mission_id, "SUCCESS", "Build verified.")

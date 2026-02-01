@@ -4,7 +4,6 @@ Tests for Pydantic domain models.
 
 import pytest
 from pydantic import ValidationError
-
 from src.domain.models import FileSpec, GantryManifest, StackType
 
 

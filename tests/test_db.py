@@ -4,7 +4,6 @@
 # Tests for database configuration.
 # =============================================================================
 
-import pytest
 from src.core.db import DB_CONFIG
 
 

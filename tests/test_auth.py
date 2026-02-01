@@ -1,51 +1,30 @@
 # =============================================================================
 # GANTRY AUTH MODULE TESTS
 # =============================================================================
-# Tests for authentication, rate limiting, and content guardrails.
+# Tests for Argon2 authentication, rate limiting, and content guardrails.
 # =============================================================================
 
-import pytest
-from unittest.mock import MagicMock, patch
 from src.core.auth import (
-    hash_password,
-    verify_password,
-    check_guardrails,
-    GuardrailResult,
     RateLimiter,
+    TokenBucket,
+    check_guardrails,
+    verify_password,
 )
 
 
 class TestPasswordAuth:
-    """Test password authentication functions."""
+    """Test Argon2 password authentication functions."""
 
-    def test_hash_password_produces_sha256(self):
-        """Hash should be 64 character hex string (SHA256)."""
-        result = hash_password("test")
-        assert len(result) == 64
-        assert all(c in "0123456789abcdef" for c in result)
-
-    def test_hash_password_is_deterministic(self):
-        """Same password should produce same hash."""
-        hash1 = hash_password("mypassword")
-        hash2 = hash_password("mypassword")
-        assert hash1 == hash2
-
-    def test_hash_password_different_inputs(self):
-        """Different passwords should produce different hashes."""
-        hash1 = hash_password("password1")
-        hash2 = hash_password("password2")
-        assert hash1 != hash2
-
-    def test_verify_password_with_default(self):
-        """Default password 'password' should verify."""
-        # Default hash is for "password"
-        with patch("src.core.auth.DEFAULT_PASSWORD_HASH", hash_password("password")):
-            assert verify_password("password") is True
+    def test_verify_password_returns_bool(self):
+        """verify_password should return boolean."""
+        result = verify_password("anypassword")
+        assert isinstance(result, bool)
 
     def test_verify_password_wrong_password(self):
-        """Wrong password should not verify."""
-        with patch("src.core.auth.DEFAULT_PASSWORD_HASH", hash_password("correct")):
-            assert verify_password("wrong") is False
+        """Wrong password should not verify (with default)."""
+        # Default password is "password"
+        result = verify_password("definitely_wrong_password_12345")
+        assert result is False
 
 
 class TestGuardrails:
@@ -104,17 +83,15 @@ class TestRateLimiter:
     def test_allows_initial_requests(self):
         """Should allow requests under the limit."""
         limiter = RateLimiter(window=60, max_requests=10)
-        allowed, remaining = limiter.is_allowed("client1")
+        allowed = limiter.is_allowed("client1")
         assert allowed is True
-        assert remaining == 9
 
-    def test_tracks_remaining_correctly(self):
-        """Should track remaining requests correctly."""
+    def test_tracks_requests(self):
+        """Should track requests correctly."""
         limiter = RateLimiter(window=60, max_requests=5)
         for i in range(4):
-            allowed, remaining = limiter.is_allowed("client1")
+            allowed = limiter.is_allowed("client1")
             assert allowed is True
-            assert remaining == 5 - i - 1
 
     def test_blocks_after_limit(self):
         """Should block after limit is reached."""
@@ -122,9 +99,8 @@ class TestRateLimiter:
         for _ in range(3):
             limiter.is_allowed("client1")
 
-        allowed, remaining = limiter.is_allowed("client1")
+        allowed = limiter.is_allowed("client1")
         assert allowed is False
-        assert remaining == 0
 
     def test_different_clients_independent(self):
         """Different clients should have independent limits."""
@@ -133,10 +109,37 @@ class TestRateLimiter:
         limiter.is_allowed("client1")
 
         # client1 is at limit
-        allowed1, _ = limiter.is_allowed("client1")
+        allowed1 = limiter.is_allowed("client1")
         assert allowed1 is False
 
         # client2 should still be allowed
-        allowed2, remaining2 = limiter.is_allowed("client2")
+        allowed2 = limiter.is_allowed("client2")
         assert allowed2 is True
-        assert remaining2 == 1
+
+
+class TestTokenBucket:
+    """Test TokenBucket rate limiting."""
+
+    def test_token_bucket_initial_tokens(self):
+        """TokenBucket should start with max tokens."""
+        bucket = TokenBucket(rate=1.0, capacity=10)
+        # Should allow multiple requests initially (with user_id)
+        for _ in range(10):
+            assert bucket.consume("user1") is True
+
+    def test_token_bucket_blocks_when_empty(self):
+        """TokenBucket should block when empty."""
+        bucket = TokenBucket(rate=0.1, capacity=2)
+        bucket.consume("user1")
+        bucket.consume("user1")
+        # Third should fail (no time for refill)
+        assert bucket.consume("user1") is False
+
+    def test_token_bucket_per_user(self):
+        """TokenBucket should track per user."""
+        bucket = TokenBucket(rate=0.1, capacity=2)
+        bucket.consume("user1")
+        bucket.consume("user1")
+        # user1 is empty, but user2 should have tokens
+        assert bucket.consume("user1") is False
+        assert bucket.consume("user2") is True

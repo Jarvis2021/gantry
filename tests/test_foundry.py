@@ -4,8 +4,6 @@
 # Tests for the Docker container build module.
 # =============================================================================
 
-import pytest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
@@ -154,4 +152,4 @@ class TestFoundryMethods:
 
         # Check class has the build method
         assert hasattr(Foundry, "build")
-        assert callable(getattr(Foundry, "build"))
+        assert callable(Foundry.build)
