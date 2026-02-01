@@ -41,6 +41,7 @@ ignore = [
     "E402",    # module level import not at top (needed for dotenv loading)
     "B008",    # function call in default argument
     "B904",    # raise from err (verbose, not always needed)
+    "ERA001",  # commented code (false positives for section headers)
     "PLR0912", # too many branches (complex logic is sometimes needed)
     "PLR0913", # too many arguments
     "PLR0915", # too many statements (complex functions)
