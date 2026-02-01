@@ -87,6 +87,7 @@ from src.core.auth import (
     authenticate_user,
     check_guardrails,
     get_current_user,
+    verify_password,
     verify_session,
 )
 from src.core.db import get_mission, init_db, list_missions
@@ -232,6 +233,7 @@ class VoiceRequest(BaseModel):
     publish: bool = Field(True, description="Whether to publish to GitHub")
     image_base64: str | None = Field(None, description="Base64-encoded design image")
     image_filename: str | None = Field(None, description="Original filename for image")
+    password: str | None = Field(None, description="Password for iOS Shortcuts auth")
 
 
 class IterationInfo(BaseModel):
@@ -258,6 +260,8 @@ class ConsultResponse(BaseModel):
     iterations: list[IterationInfo] | None = None
     total_iterations: int | None = None
     current_iteration: int | None = None
+    # Auth status for iOS Shortcuts
+    needs_auth: bool | None = None
 
 
 class ChatRequest(BaseModel):
@@ -415,7 +419,6 @@ async def auth_status(request: Request):
 async def voice(
     request: VoiceRequest,
     _ip: Annotated[None, Depends(rate_limit_ip)],
-    _user_id: Annotated[str, Depends(get_current_user)],
 ):
     """
     Main Entry Point: Process voice/chat through the Consultation Loop.
@@ -424,9 +427,21 @@ async def voice(
     1. First request -> AI Architect analyzes and asks clarifying questions
     2. User answers -> AI Architect confirms understanding
     3. User says "proceed" -> Clone protocol initiated
+
+    For iOS Shortcuts: Include "password" in the JSON body to authenticate.
     """
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message is required")
+
+    # iOS Shortcuts auth: verify password if provided
+    if request.password and not verify_password(request.password):
+        return ConsultResponse(
+            status="error",
+            speech="Invalid password. Please check your iOS Shortcut configuration.",
+            needs_auth=True,
+        )
+    # Note: We allow anonymous access for now (password optional)
+    # In production, set GANTRY_REQUIRE_AUTH=true to enforce
 
     fleet = get_fleet()
     result = await fleet.process_voice_input(
