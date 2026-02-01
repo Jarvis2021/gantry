@@ -1,3 +1,17 @@
+# Copyright 2026 Pramod Kumar Voola
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # -----------------------------------------------------------------------------
 # MISSION DATABASE (PostgreSQL)
 # -----------------------------------------------------------------------------
@@ -29,6 +43,9 @@ DB_CONFIG = {
     "user": os.getenv("DB_USER", "gantry"),
     "password": os.getenv("DB_PASSWORD", "securepass"),
     "database": os.getenv("DB_NAME", "gantry_fleet"),
+    # Connection and query timeouts to prevent pool exhaustion
+    "connect_timeout": 10,  # 10s connection timeout
+    "options": "-c statement_timeout=30000",  # 30s query timeout (in ms)
 }
 
 # Connection pool (initialized on first use)
@@ -41,7 +58,7 @@ class MissionRecord(BaseModel):
 
     Why Pydantic: Type safety and validation when reading from DB.
 
-    V6.5 Additions:
+    Consultation Additions:
     - conversation_history: Tracks the back-and-forth with user
     - design_target: Famous app being cloned (LINKEDIN, TWITTER, etc.)
     - pending_question: Question waiting for user response
@@ -53,7 +70,7 @@ class MissionRecord(BaseModel):
     speech_output: str | None = None
     created_at: str
     updated_at: str | None = None
-    # V6.5: Consultation Loop Fields
+    # Consultation Loop Fields
     conversation_history: list[dict] | None = None
     design_target: str | None = None
     pending_question: str | None = None
@@ -66,6 +83,8 @@ def _get_pool() -> SimpleConnectionPool:
 
     Why connection pooling: Reuses connections instead of creating new ones,
     improving performance and reducing database load.
+
+    Connection and query timeouts prevent pool exhaustion under load.
     """
     global _pool
 
@@ -79,9 +98,12 @@ def _get_pool() -> SimpleConnectionPool:
                 user=DB_CONFIG["user"],
                 password=DB_CONFIG["password"],
                 database=DB_CONFIG["database"],
+                connect_timeout=DB_CONFIG["connect_timeout"],
+                options=DB_CONFIG["options"],
             )
             console.print(
-                f"[green][DB] Connection pool created: {DB_CONFIG['host']}:{DB_CONFIG['port']}[/green]"
+                f"[green][DB] Connection pool created: {DB_CONFIG['host']}:{DB_CONFIG['port']} "
+                f"(timeout: {DB_CONFIG['connect_timeout']}s)[/green]"
             )
         except psycopg2.Error as e:
             console.print(f"[red][DB] Failed to create connection pool: {e}[/red]")
@@ -117,7 +139,7 @@ def init_db() -> None:
     Why explicit init: Ensures table exists before any operations.
     Called at application startup. Safe to call multiple times.
 
-    V6.5: Added conversation_history, design_target, pending_question columns.
+    Added conversation_history, design_target, pending_question columns.
     """
     with get_connection() as conn, conn.cursor() as cursor:
         cursor.execute("""
@@ -147,7 +169,7 @@ def init_db() -> None:
                 ON missions(created_at DESC)
             """)
 
-        # V6.5: Add new columns if they don't exist (migration for existing DBs)
+        # Add new columns if they don't exist (migration for existing DBs)
         for column, col_type in [
             ("conversation_history", "JSONB DEFAULT '[]'::jsonb"),
             ("design_target", "VARCHAR(100)"),
@@ -233,7 +255,7 @@ def get_mission(mission_id: str) -> MissionRecord | None:
             speech_output=row["speech_output"],
             created_at=row["created_at"].isoformat() if row["created_at"] else None,
             updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
-            # V6.5: Consultation fields
+            # Consultation fields
             conversation_history=row.get("conversation_history") or [],
             design_target=row.get("design_target"),
             pending_question=row.get("pending_question"),
@@ -270,7 +292,7 @@ def list_missions(limit: int = 50) -> list[MissionRecord]:
                 speech_output=row["speech_output"],
                 created_at=row["created_at"].isoformat() if row["created_at"] else None,
                 updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
-                # V6.5: Consultation fields
+                # Consultation fields
                 conversation_history=row.get("conversation_history") or [],
                 design_target=row.get("design_target"),
                 pending_question=row.get("pending_question"),
@@ -439,7 +461,7 @@ def close_pool() -> None:
 
 
 # =============================================================================
-# V6.5: CONSULTATION LOOP DATABASE METHODS
+# CONSULTATION LOOP DATABASE METHODS
 # =============================================================================
 
 
@@ -447,7 +469,7 @@ def create_consultation(prompt: str, design_target: str | None = None) -> str:
     """
     Create a new consultation session.
 
-    This is the V6.5 "Consultation Phase" - before building, we consult.
+    This is the "Consultation Phase" - before building, we consult.
 
     Args:
         prompt: The user's initial request.

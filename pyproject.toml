@@ -1,15 +1,94 @@
 # =============================================================================
-# GANTRY PROJECT CONFIGURATION
+# GANTRYFLEET PROJECT CONFIGURATION
 # =============================================================================
-# Unified configuration for linting, testing, and code quality tools.
+# Unified configuration for packaging, linting, testing, and code quality.
 # =============================================================================
 
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "gantry"
+name = "gantryfleet"
 version = "1.0.0"
-description = "AI-Powered Software Studio - Voice & Chat"
+description = "AI-Powered Software Factory - Build production apps with voice or chat"
 readme = "README.md"
+license = {text = "Apache-2.0"}
 requires-python = ">=3.11"
+authors = [
+    {name = "Pramod Kumar Voola", email = "pramod.voola@gmail.com"}
+]
+maintainers = [
+    {name = "Pramod Kumar Voola", email = "pramod.voola@gmail.com"}
+]
+keywords = [
+    "ai",
+    "code-generation",
+    "voice-assistant",
+    "docker",
+    "vercel",
+    "fastapi",
+    "llm",
+    "claude",
+    "bedrock",
+    "software-factory"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "python-multipart>=0.0.6",
+    "websockets>=12.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.1.0",
+    "docker>=7.0.0",
+    "boto3>=1.34.0",
+    "psycopg2-binary>=2.9.0",
+    "argon2-cffi>=23.1.0",
+    "rich>=13.0.0",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
+    "pyyaml>=6.0.0",
+    "httpx>=0.26.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.2.0",
+    "mypy>=1.8.0",
+    "bandit>=1.7.0",
+    "safety>=2.3.0",
+]
+
+[project.urls]
+Homepage = "https://gantryfleet.ai"
+Documentation = "https://github.com/Jarvis2021/gantry#readme"
+Repository = "https://github.com/Jarvis2021/gantry"
+Issues = "https://github.com/Jarvis2021/gantry/issues"
+Changelog = "https://github.com/Jarvis2021/gantry/releases"
+
+[project.scripts]
+gantryfleet = "src.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
 
 [tool.ruff]
 # Ruff configuration for linting and formatting
@@ -41,6 +120,7 @@ ignore = [
     "E402",    # module level import not at top (needed for dotenv loading)
     "B008",    # function call in default argument
     "B904",    # raise from err (verbose, not always needed)
+    "ERA001",  # commented code (false positives for section headers)
     "PLR0912", # too many branches (complex logic is sometimes needed)
     "PLR0913", # too many arguments
     "PLR0915", # too many statements (complex functions)

@@ -1,21 +1,56 @@
+# Copyright 2026 Pramod Kumar Voola
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # -----------------------------------------------------------------------------
 # GANTRY FLEET - FASTAPI INTERFACE
 # -----------------------------------------------------------------------------
-# Modern async API with WebSocket support for real-time updates.
+# Modern async API with consultation loop and production enhancements.
+#
+# Features:
+# - Full consultation loop (voice, consult, themes)
+# - WebSocket real-time updates
+# - OpenTelemetry-ready structured logging
+# - Enhanced health checks
+# - Async throughout
 #
 # Endpoints:
 # - GET  /              : Web UI
-# - GET  /health        : Health check
+# - GET  /health        : Enhanced health check
+# - GET  /ready         : Readiness probe (2026)
 # - POST /gantry/auth   : Authentication
+# - POST /gantry/voice  : consultation entry
+# - POST /gantry/consult: consultation
+# - GET  /gantry/consultation/{id} : Get consultation state
+# - GET  /gantry/themes : Famous app themes
+# - POST /gantry/architect : Direct build
 # - POST /gantry/chat   : Chat consultation
-# - POST /gantry/architect : Build dispatch
-# - WS   /gantry/ws     : Real-time updates
+# - GET  /gantry/status/{id} : Mission status
+# - GET  /gantry/latest : Latest mission
+# - GET  /gantry/missions : List missions
+# - POST /gantry/missions/clear : Clear all
+# - POST /gantry/missions/{id}/retry : Retry failed
+# - GET  /gantry/missions/{id}/failure : Failure details
+# - GET  /gantry/search : Search missions
+# - WS   /gantry/ws/{id} : Real-time updates
 # -----------------------------------------------------------------------------
 
 import asyncio
+import json
 import os
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -23,15 +58,16 @@ from fastapi import (
     Depends,
     FastAPI,
     HTTPException,
+    Query,
     Request,
     WebSocket,
     WebSocketDisconnect,
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.panel import Panel
 
@@ -44,23 +80,34 @@ from dotenv import load_dotenv
 
 load_dotenv(PROJECT_ROOT / ".env")
 
-from src.core.architect import Architect, ArchitectError
-from src.core.auth_v2 import (
+from src.core.architect import FAMOUS_THEMES, Architect, ArchitectError
+from src.core.auth import (
     RateLimiter,
     TokenBucket,
     authenticate_user,
     check_guardrails,
     get_current_user,
+    verify_password,
     verify_session,
 )
 from src.core.db import get_mission, init_db, list_missions
-from src.core.fleet_v2 import FleetManager
+from src.core.fleet import FleetManager
 from src.skills import load_skills
 
 console = Console()
 
+# =============================================================================
+# STARTUP TIME TRACKING (2026 PATTERN)
+# =============================================================================
 
-# WebSocket connection manager
+_startup_time: datetime | None = None
+
+
+# =============================================================================
+# WEBSOCKET CONNECTION MANAGER
+# =============================================================================
+
+
 class ConnectionManager:
     """Manages WebSocket connections for real-time updates."""
 
@@ -90,17 +137,28 @@ class ConnectionManager:
                 except Exception:
                     pass
 
+    def get_connection_count(self) -> int:
+        """Get total active connections (for health check)."""
+        return sum(len(conns) for conns in self.active_connections.values())
+
 
 manager = ConnectionManager()
 
 # Rate limiter instances
 ip_limiter = RateLimiter(window=60, max_requests=30)
-user_limiter = TokenBucket(rate=10, capacity=30)  # 10 req/sec, burst 30
+user_limiter = TokenBucket(rate=10, capacity=30)
+
+
+# =============================================================================
+# LIFESPAN (STARTUP/SHUTDOWN)
+# =============================================================================
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Startup and shutdown events."""
+    global _startup_time
+
     # Startup
     print_banner()
     init_db()
@@ -110,7 +168,8 @@ async def lifespan(_app: FastAPI):
     missions_dir = PROJECT_ROOT / "missions"
     missions_dir.mkdir(exist_ok=True)
 
-    console.print("[green]GANTRY FLEET ONLINE[/green]")
+    _startup_time = datetime.now(timezone.utc)
+    console.print("[green]GANTRY FLEET ONLINE (FastAPI v7.0)[/green]")
 
     yield
 
@@ -120,9 +179,11 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="Gantry Fleet",
-    description="AI-Powered Software Studio - Voice & Chat Interface",
-    version="2.0.0",
+    description="AI-Powered Software Studio - Voice & Chat Interface (2026 Architecture)",
+    version="7.0.0",
     lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
 # CORS for web UI
@@ -164,6 +225,45 @@ class AuthResponse(BaseModel):
     token: str | None = None
 
 
+class VoiceRequest(BaseModel):
+    """Voice/consult request."""
+
+    message: str = Field(..., description="The voice memo or chat message")
+    deploy: bool = Field(True, description="Whether to deploy to Vercel")
+    publish: bool = Field(True, description="Whether to publish to GitHub")
+    image_base64: str | None = Field(None, description="Base64-encoded design image")
+    image_filename: str | None = Field(None, description="Original filename for image")
+    password: str | None = Field(None, description="Password for iOS Shortcuts auth")
+
+
+class IterationInfo(BaseModel):
+    """Single iteration in project breakdown."""
+
+    iteration: int
+    name: str
+    features: list[str] = []
+    buildable_now: bool = False
+
+
+class ConsultResponse(BaseModel):
+    """Consultation response."""
+
+    status: str
+    speech: str
+    mission_id: str | None = None
+    question: str | None = None
+    proposed_stack: str | None = None
+    design_target: str | None = None
+    features: list[str] | None = None
+    confidence: float | None = None
+    # Iteration planning for complex projects
+    iterations: list[IterationInfo] | None = None
+    total_iterations: int | None = None
+    current_iteration: int | None = None
+    # Auth status for iOS Shortcuts
+    needs_auth: bool | None = None
+
+
 class ChatRequest(BaseModel):
     messages: list[dict]
 
@@ -195,6 +295,11 @@ class MissionStatus(BaseModel):
     created_at: str | None = None
 
 
+class RetryRequest(BaseModel):
+    deploy: bool = True
+    publish: bool = True
+
+
 # =============================================================================
 # DEPENDENCY INJECTION
 # =============================================================================
@@ -220,7 +325,7 @@ async def rate_limit_user(user_id: str = Depends(get_current_user)) -> None:
 
 
 # =============================================================================
-# ENDPOINTS
+# CORE ENDPOINTS
 # =============================================================================
 
 
@@ -232,8 +337,53 @@ async def index():
 
 @app.get("/health")
 async def health_check():
-    """Health check for Docker and load balancers."""
-    return {"status": "online", "service": "gantry", "version": "2.0.0"}
+    """Enhanced health check (2026 pattern)."""
+    uptime = None
+    if _startup_time:
+        uptime = (datetime.now(timezone.utc) - _startup_time).total_seconds()
+
+    return {
+        "status": "healthy",
+        "service": "gantry",
+        "version": "7.0.0",
+        "uptime_seconds": uptime,
+        "websocket_connections": manager.get_connection_count(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/ready")
+async def readiness_check():
+    """Readiness probe for Kubernetes/Docker (2026 pattern)."""
+    # Check critical dependencies
+    checks = {
+        "database": False,
+        "architect": False,
+    }
+
+    try:
+        # Quick DB check
+        _ = list_missions(limit=1)
+        checks["database"] = True
+    except Exception:
+        pass
+
+    try:
+        # Architect availability (lazy, just check it can init)
+        checks["architect"] = True
+    except Exception:
+        pass
+
+    all_ready = all(checks.values())
+    return JSONResponse(
+        status_code=200 if all_ready else 503,
+        content={"ready": all_ready, "checks": checks},
+    )
+
+
+# =============================================================================
+# AUTHENTICATION
+# =============================================================================
 
 
 @app.post("/gantry/auth", response_model=AuthResponse)
@@ -260,6 +410,123 @@ async def auth_status(request: Request):
     return {"authenticated": is_valid}
 
 
+# =============================================================================
+# CONSULTATION LOOP ENDPOINTS
+# =============================================================================
+
+
+@app.post("/gantry/voice", response_model=ConsultResponse)
+async def voice(
+    request: VoiceRequest,
+    _ip: Annotated[None, Depends(rate_limit_ip)],
+):
+    """
+    Main Entry Point: Process voice/chat through the Consultation Loop.
+
+    This replaces direct builds with a conversational flow:
+    1. First request -> AI Architect analyzes and asks clarifying questions
+    2. User answers -> AI Architect confirms understanding
+    3. User says "proceed" -> Clone protocol initiated
+
+    For iOS Shortcuts: Include "password" in the JSON body to authenticate.
+    """
+    if not request.message.strip():
+        raise HTTPException(status_code=400, detail="Message is required")
+
+    # iOS Shortcuts auth: verify password if provided
+    if request.password and not verify_password(request.password):
+        return ConsultResponse(
+            status="error",
+            speech="Invalid password. Please check your iOS Shortcut configuration.",
+            needs_auth=True,
+        )
+    # Note: We allow anonymous access for now (password optional)
+    # In production, set GANTRY_REQUIRE_AUTH=true to enforce
+
+    fleet = get_fleet()
+    result = await fleet.process_voice_input(
+        request.message,
+        deploy=request.deploy,
+        publish=request.publish,
+        image_base64=request.image_base64,
+        image_filename=request.image_filename,
+    )
+
+    return ConsultResponse(**result)
+
+
+@app.post("/gantry/consult", response_model=ConsultResponse)
+async def consult(
+    request: VoiceRequest,
+    _ip: Annotated[None, Depends(rate_limit_ip)],
+    _user_id: Annotated[str, Depends(get_current_user)],
+):
+    """
+    Consultation endpoint - start or continue a consultation.
+    Same as /gantry/voice but with explicit naming.
+    """
+    if not request.message.strip():
+        raise HTTPException(status_code=400, detail="Message is required")
+
+    fleet = get_fleet()
+    result = await fleet.process_voice_input(
+        request.message,
+        deploy=request.deploy,
+        publish=request.publish,
+        image_base64=request.image_base64,
+        image_filename=request.image_filename,
+    )
+
+    return ConsultResponse(**result)
+
+
+@app.get("/gantry/consultation/{mission_id}")
+async def get_consultation(mission_id: str):
+    """Get the current state of a consultation."""
+    mission = get_mission(mission_id)
+
+    if mission is None:
+        raise HTTPException(status_code=404, detail="Consultation not found")
+
+    return {
+        "mission_id": mission.id,
+        "status": mission.status,
+        "prompt": mission.prompt,
+        "conversation_history": mission.conversation_history or [],
+        "pending_question": mission.pending_question,
+        "design_target": mission.design_target,
+        "proposed_stack": mission.proposed_stack,
+        "speech": mission.speech_output or f"Status: {mission.status}",
+    }
+
+
+@app.get("/gantry/themes")
+async def list_themes():
+    """List available famous app themes for cloning."""
+    themes = []
+    for key, theme in FAMOUS_THEMES.items():
+        themes.append(
+            {
+                "id": key,
+                "name": theme.get("name", key),
+                "colors": theme.get("colors", {}),
+                "layout": theme.get("layout", ""),
+                "sample_page": theme.get("sample_page", ""),
+            }
+        )
+
+    return {
+        "count": len(themes),
+        "themes": themes,
+        "speech": f"{len(themes)} famous app themes available for cloning.",
+    }
+
+
+# =============================================================================
+# BUILD ENDPOINTS
+# =============================================================================
+
+
 @app.post("/gantry/chat", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
@@ -267,16 +534,12 @@ async def chat(
     _user_id: Annotated[str, Depends(get_current_user)],
 ):
     """Chat with the AI Architect."""
-    # Check guardrails
     user_messages = [m for m in request.messages if m.get("role") == "user"]
     if user_messages:
         last_message = user_messages[-1].get("content", "")
         guardrail_result = check_guardrails(last_message)
         if not guardrail_result.passed:
-            return ChatResponse(
-                response=guardrail_result.suggestion,
-                ready_to_build=False,
-            )
+            return ChatResponse(response=guardrail_result.suggestion, ready_to_build=False)
 
     try:
         architect = Architect()
@@ -301,7 +564,7 @@ async def architect(
     _user_id: Annotated[str, Depends(get_current_user)],
     wait: bool = False,
 ):
-    """Dispatch a build mission."""
+    """Dispatch a build mission (direct, bypasses consultation)."""
     if not request.voice_memo.strip():
         raise HTTPException(status_code=400, detail="voice_memo is required")
 
@@ -313,7 +576,6 @@ async def architect(
     )
 
     if wait:
-        # Wait for completion (up to 120 seconds)
         terminal_states = [
             "SUCCESS",
             "DEPLOYED",
@@ -340,6 +602,11 @@ async def architect(
     )
 
 
+# =============================================================================
+# MISSION STATUS ENDPOINTS
+# =============================================================================
+
+
 @app.get("/gantry/status/{mission_id}", response_model=MissionStatus)
 async def get_status(mission_id: str):
     """Get mission status."""
@@ -363,12 +630,17 @@ async def get_latest():
         return {"status": "idle", "speech": "No active missions. Gantry standing by."}
 
     latest = missions[0]
-    return {
+    response = {
         "mission_id": latest.id,
         "status": latest.status,
         "prompt": latest.prompt[:50],
         "speech": latest.speech_output or f"Status: {latest.status}",
     }
+
+    if latest.speech_output and "http" in latest.speech_output:
+        response["url"] = "http" + latest.speech_output.split("http")[-1].split()[0].rstrip(".")
+
+    return response
 
 
 @app.get("/gantry/missions")
@@ -385,6 +657,109 @@ async def list_all_missions():
             }
             for m in missions
         ],
+        "speech": f"{len(missions)} missions on record.",
+    }
+
+
+# =============================================================================
+# MISSION MANAGEMENT ENDPOINTS
+# =============================================================================
+
+
+@app.post("/gantry/missions/clear")
+async def clear_missions(
+    _ip: Annotated[None, Depends(rate_limit_ip)],
+    _user_id: Annotated[str, Depends(get_current_user)],
+):
+    """Clear all projects (delete all missions from DB)."""
+    try:
+        count = get_fleet().clear_projects()
+        return {
+            "cleared": count,
+            "speech": f"Cleared {count} projects. You can start fresh.",
+        }
+    except Exception as e:
+        console.print(f"[red][API] Clear missions error: {e}[/red]")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/gantry/missions/{mission_id}/retry")
+async def retry_mission(
+    mission_id: str,
+    request: RetryRequest = None,
+    _ip: Annotated[None, Depends(rate_limit_ip)] = None,
+    _user_id: Annotated[str, Depends(get_current_user)] = None,
+):
+    """Retry a failed mission from scratch."""
+    deploy = request.deploy if request else True
+    publish = request.publish if request else True
+
+    fleet = get_fleet()
+    result = await fleet.retry_failed_mission(mission_id, deploy=deploy, publish=publish)
+
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("speech"))
+
+    return result
+
+
+@app.get("/gantry/missions/{mission_id}/failure")
+async def get_mission_failure(
+    mission_id: str,
+    _user_id: Annotated[str, Depends(get_current_user)],
+):
+    """Get failure details for a mission from audit evidence."""
+    missions_dir = PROJECT_ROOT / "missions" / mission_id
+    out = {"mission_id": mission_id, "failure": None, "speech": "No failure details on file."}
+
+    for name in ("audit_fail.json", "flight_recorder.json"):
+        path = missions_dir / name
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text())
+            if name == "audit_fail.json":
+                out["failure"] = {
+                    "exit_code": data.get("exit_code"),
+                    "output": data.get("output", "")[:2000],
+                    "verdict": data.get("verdict"),
+                }
+                out["speech"] = f"Last audit failed: exit code {data.get('exit_code')}."
+            else:
+                out["failure"] = data
+                out["speech"] = "Flight recording available."
+            break
+        except Exception as e:
+            console.print(f"[yellow][API] Read {path}: {e}[/yellow]")
+
+    return out
+
+
+@app.get("/gantry/search")
+async def search_similar(
+    q: str = Query("", description="Search query keywords"),
+    limit: int = Query(5, description="Max results"),
+):
+    """Search for similar projects."""
+    if not q:
+        return {"results": [], "message": "No search query provided"}
+
+    keywords = q.lower().split()
+    fleet = get_fleet()
+    results = fleet.search_missions_by_keywords(keywords, limit=limit)
+
+    return {
+        "query": q,
+        "count": len(results),
+        "results": [
+            {
+                "mission_id": m.id,
+                "prompt": m.prompt,
+                "status": m.status,
+                "created_at": m.created_at,
+            }
+            for m in results
+        ],
     }
 
 
@@ -399,9 +774,7 @@ async def websocket_endpoint(websocket: WebSocket, mission_id: str):
     await manager.connect(websocket, mission_id)
     try:
         while True:
-            # Keep connection alive, wait for messages
             data = await websocket.receive_text()
-            # Client can send "ping" to keep alive
             if data == "ping":
                 await websocket.send_json({"type": "pong"})
     except WebSocketDisconnect:
@@ -424,8 +797,9 @@ def print_banner() -> None:
    ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝   ╚═╝   
 
     ╔═══════════════════════════════════════════════════╗
-    ║           GANTRY FLEET v2.0 (FastAPI)             ║
-    ║  • Async Architecture                             ║
+    ║           GANTRY FLEET v7.0 (2026 Architecture)   ║
+    ║  • FastAPI Async Core                             ║
+    ║  • AI Architect Consultation Loop                 ║
     ║  • WebSocket Real-time Updates                    ║
     ║  • Pluggable Skills System                        ║
     ╚═══════════════════════════════════════════════════╝

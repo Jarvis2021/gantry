@@ -1,3 +1,17 @@
+# Copyright 2026 Pramod Kumar Voola
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # -----------------------------------------------------------------------------
 # THE FOUNDRY - BUILDER & EVIDENCE
 # -----------------------------------------------------------------------------
@@ -33,7 +47,10 @@ console = Console()
 
 # Configuration
 BUILD_TIMEOUT_SECONDS = 180  # Dead Man's Switch - 3 minutes
+EXEC_TIMEOUT_SECONDS = 120  # Per-command timeout (prevents hanging exec_run)
 MEMORY_LIMIT = "512m"  # Prevent memory leaks
+CPU_PERIOD = 100000  # CPU scheduling period (microseconds)
+CPU_QUOTA = 50000  # 50% of one CPU core (prevents runaway processes)
 MISSIONS_DIR = Path(__file__).parent.parent.parent / "missions"
 
 # Universal builder image (has Python, Node, Git, Vercel)
@@ -190,14 +207,74 @@ class Foundry:
             return BUILDER_IMAGE
         return STACK_IMAGES.get(stack, STACK_IMAGES[StackType.PYTHON])
 
+    def _exec_with_timeout(
+        self,
+        container: Container,
+        cmd: list[str] | str,
+        workdir: str = "/workspace",
+        timeout: int = EXEC_TIMEOUT_SECONDS,
+    ) -> tuple[int, bytes]:
+        """
+        Execute command in container with timeout protection.
+
+        Prevents hanging exec_run calls that block forever.
+        Uses a separate thread to run the command and joins with timeout.
+
+        Args:
+            container: Docker container to execute in.
+            cmd: Command to run (list or string for shell).
+            workdir: Working directory inside container.
+            timeout: Maximum seconds to wait (default: EXEC_TIMEOUT_SECONDS).
+
+        Returns:
+            Tuple of (exit_code, output_bytes).
+
+        Raises:
+            BuildTimeoutError: If command exceeds timeout.
+        """
+        result: dict = {"exit_code": -1, "output": b"", "error": None}
+
+        def _run():
+            try:
+                if isinstance(cmd, str):
+                    result["exit_code"], result["output"] = container.exec_run(
+                        cmd=["sh", "-c", cmd], workdir=workdir
+                    )
+                else:
+                    result["exit_code"], result["output"] = container.exec_run(
+                        cmd=cmd, workdir=workdir
+                    )
+            except Exception as e:
+                result["error"] = e
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+        thread.join(timeout=timeout)
+
+        if thread.is_alive():
+            # Command is hanging - kill container to unblock thread
+            console.print(f"[red][FOUNDRY] Command timeout ({timeout}s) - killing container[/red]")
+            try:
+                container.kill()
+            except Exception:
+                pass
+            raise BuildTimeoutError(
+                f"Command timed out after {timeout}s: {cmd[:100] if isinstance(cmd, str) else cmd}"
+            )
+
+        if result["error"]:
+            raise result["error"]
+
+        return result["exit_code"], result["output"]
+
     def _verify_serverless_structure(self, container: Container, manifest: GantryManifest) -> bool:
         """
         Verify the project has correct Vercel serverless structure.
 
-        Checks:
-        1. api/index.js or api/index.py exists
-        2. vercel.json exists with rewrites
-        3. Handler exports correctly
+        LENIENT CHECK: Support multiple valid Vercel structures:
+        1. Static-only: public/index.html + vercel.json (no API required)
+        2. API + Static: api/index.js + public/index.html + vercel.json
+        3. Full serverless: api/*.js with ESM or CommonJS exports
 
         Args:
             container: Running Docker container with the app
@@ -208,48 +285,84 @@ class Foundry:
         """
         console.print("[cyan][FOUNDRY] Verifying Vercel serverless structure...[/cyan]")
 
-        # Check required files exist
-        if manifest.stack == StackType.NODE:
-            check_cmd = """
-            if [ -f api/index.js ] && [ -f vercel.json ]; then
-                # Check that api/index.js exports a function
-                if grep -q "module.exports" api/index.js; then
-                    echo "STRUCTURE_VALID"
-                    exit 0
-                else
-                    echo "MISSING_EXPORT: api/index.js must have module.exports"
-                    exit 1
-                fi
-            else
-                echo "MISSING_FILES: Need api/index.js and vercel.json"
-                exit 1
-            fi
-            """
-        elif manifest.stack == StackType.PYTHON:
-            check_cmd = """
-            if [ -f api/index.py ] && [ -f vercel.json ]; then
-                # Check that api/index.py has handler class
-                if grep -q "class handler" api/index.py; then
-                    echo "STRUCTURE_VALID"
-                    exit 0
-                else
-                    echo "MISSING_HANDLER: api/index.py must have 'class handler'"
-                    exit 1
-                fi
-            else
-                echo "MISSING_FILES: Need api/index.py and vercel.json"
-                exit 1
-            fi
-            """
+        # FAST PATH: Check manifest directly first (no container exec needed)
+        # This is more reliable than shell commands that can have parsing issues
+        has_static = any(
+            f.path in ("public/index.html", "index.html", "public/index.htm", "index.htm")
+            for f in manifest.files
+        )
+        has_api_js = any(
+            f.path.startswith("api/") and f.path.endswith(".js") for f in manifest.files
+        )
+        has_api_py = any(
+            f.path.startswith("api/") and f.path.endswith(".py") for f in manifest.files
+        )
+        has_vercel_json = any(f.path == "vercel.json" for f in manifest.files)
+
+        # Log what we found
+        console.print(
+            f"[dim][FOUNDRY] Structure: static={has_static}, api_js={has_api_js}, api_py={has_api_py}, vercel.json={has_vercel_json}[/dim]"
+        )
+
+        # Valid if we have static content OR a valid API
+        if has_static:
+            console.print("[dim][FOUNDRY] STATIC_SITE_VALID[/dim]")
+            console.print("[dim][FOUNDRY] STRUCTURE_VALID[/dim]")
+            return True
+
+        if manifest.stack == StackType.NODE and has_api_js:
+            # Check API file has valid exports
+            for f in manifest.files:
+                if (
+                    f.path.startswith("api/")
+                    and f.path.endswith(".js")
+                    and any(
+                        kw in f.content
+                        for kw in [
+                            "export default",
+                            "module.exports",
+                            "exports.",
+                            "export function",
+                            "export const",
+                        ]
+                    )
+                ):
+                    console.print("[dim][FOUNDRY] API_VALID[/dim]")
+                    console.print("[dim][FOUNDRY] STRUCTURE_VALID[/dim]")
+                    return True
+
+        if manifest.stack == StackType.PYTHON and has_api_py:
+            # Check API file has valid handler
+            for f in manifest.files:
+                if (
+                    f.path.startswith("api/")
+                    and f.path.endswith(".py")
+                    and any(kw in f.content for kw in ["class handler", "def handler", "def app"])
+                ):
+                    console.print("[dim][FOUNDRY] API_VALID[/dim]")
+                    console.print("[dim][FOUNDRY] STRUCTURE_VALID[/dim]")
+                    return True
+
+        # FALLBACK: Container check for edge cases (files might be generated during build)
+        if manifest.stack in (StackType.NODE, StackType.PYTHON):
+            check_cmd = 'test -f public/index.html && echo "STRUCTURE_VALID" || (test -f index.html && echo "STRUCTURE_VALID" || echo "INVALID")'
         else:
             return True
 
-        exit_code, output = container.exec_run(cmd=["sh", "-c", check_cmd], workdir="/workspace")
+        try:
+            _, output = self._exec_with_timeout(container, check_cmd, timeout=10)
+            output_str = output.decode("utf-8") if isinstance(output, bytes) else str(output)
+            console.print(f"[dim][FOUNDRY] Container check: {output_str.strip()}[/dim]")
 
-        output_str = output.decode("utf-8") if isinstance(output, bytes) else str(output)
-        console.print(f"[dim][FOUNDRY] Structure check: {output_str.strip()}[/dim]")
+            if "STRUCTURE_VALID" in output_str:
+                return True
+        except Exception as e:
+            console.print(f"[yellow][FOUNDRY] Container check failed: {e}[/yellow]")
 
-        return exit_code == 0 and "STRUCTURE_VALID" in output_str
+        console.print(
+            "[dim][FOUNDRY] INVALID: Need public/index.html OR api/index.js with exports[/dim]"
+        )
+        return False
 
     def _create_tar(self, manifest: GantryManifest) -> bytes:
         """Create in-memory tar archive of all files."""
@@ -365,6 +478,8 @@ class Foundry:
                     auto_remove=False,
                     working_dir="/workspace",
                     mem_limit=MEMORY_LIMIT,
+                    cpu_period=CPU_PERIOD,
+                    cpu_quota=CPU_QUOTA,
                 )
             except APIError as e:
                 if "Conflict" in str(e):
@@ -382,6 +497,8 @@ class Foundry:
                         auto_remove=False,
                         working_dir="/workspace",
                         mem_limit=MEMORY_LIMIT,
+                        cpu_period=CPU_PERIOD,
+                        cpu_quota=CPU_QUOTA,
                     )
                 else:
                     raise
@@ -417,9 +534,8 @@ class Foundry:
                 console.print("[cyan][FOUNDRY] Installing Python dependencies...[/cyan]")
                 blackbox.log("DEPS_INSTALL_STARTED", "requirements.txt")
 
-                dep_exit, dep_output = container.exec_run(
-                    cmd=["sh", "-c", "pip install -r requirements.txt --quiet"],
-                    workdir="/workspace",
+                dep_exit, dep_output = self._exec_with_timeout(
+                    container, "pip install -r requirements.txt --quiet", timeout=90
                 )
 
                 if dep_exit != 0:
@@ -442,9 +558,8 @@ class Foundry:
                 console.print("[cyan][FOUNDRY] Installing Node dependencies...[/cyan]")
                 blackbox.log("DEPS_INSTALL_STARTED", "package.json")
 
-                dep_exit, dep_output = container.exec_run(
-                    cmd=["sh", "-c", "npm install --silent"],
-                    workdir="/workspace",
+                dep_exit, dep_output = self._exec_with_timeout(
+                    container, "npm install --silent", timeout=90
                 )
 
                 if dep_exit == 0:
@@ -454,13 +569,12 @@ class Foundry:
             if timeout_triggered.is_set():
                 raise BuildTimeoutError("Dead Man's Switch triggered")
 
-            # Run Critic (audit_command)
+            # Run Critic (audit_command) with timeout protection
             console.print(f"[cyan][FOUNDRY] Running audit: {manifest.audit_command}[/cyan]")
             blackbox.log("AUDIT_STARTED", manifest.audit_command)
 
-            exit_code, output = container.exec_run(
-                cmd=["sh", "-c", manifest.audit_command],
-                workdir="/workspace",
+            exit_code, output = self._exec_with_timeout(
+                container, manifest.audit_command, timeout=EXEC_TIMEOUT_SECONDS
             )
 
             output_str = output.decode("utf-8") if isinstance(output, bytes) else str(output)

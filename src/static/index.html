@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gantry Fleet</title>
+    <title>GantryFleet</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -63,16 +63,15 @@
         }
 
         .brand-icon {
-            width: 24px;
-            height: 24px;
-            background: var(--blue);
-            border-radius: 5px;
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
             display: flex;
             align-items: center;
             justify-content: center;
         }
 
-        .brand-icon svg { width: 14px; height: 14px; fill: white; }
+        .brand-icon img { width: 32px; height: 32px; border-radius: 6px; }
         .brand-text { font-size: 14px; font-weight: 600; }
 
         .header-status {
@@ -185,15 +184,27 @@
 
         .input-field {
             flex: 1;
-            padding: 8px 12px;
+            padding: 10px 14px;
             border: 1px solid var(--border);
-            border-radius: 6px;
+            border-radius: 8px;
             font-family: inherit;
-            font-size: 12px;
+            font-size: 13px;
             outline: none;
+            resize: vertical;
+            min-height: 44px;
+            max-height: 300px;
+            line-height: 1.5;
         }
 
-        .input-field:focus { border-color: var(--blue); }
+        .input-field:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1); }
+        .input-field::placeholder { color: var(--text-muted); }
+        
+        .input-hint {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 4px;
+            text-align: right;
+        }
 
         .send-btn {
             padding: 8px 14px;
@@ -462,92 +473,127 @@
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
         /* Login Overlay */
+        /* Login Overlay - Mobile-First */
         .login-overlay {
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
+            background: rgba(0, 0, 0, 0.6);
             backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 1000;
+            z-index: 9999;
+            padding: 16px;
+            overflow: auto;
         }
 
-        .login-overlay.hidden { display: none; }
+        .login-overlay.hidden { display: none !important; }
 
         .login-card {
             background: var(--bg);
-            border-radius: 12px;
-            padding: 24px;
-            width: 320px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            border-radius: 16px;
+            padding: 28px 24px;
+            width: 100%;
+            max-width: 320px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+            animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .login-title {
-            font-size: 18px;
+            font-size: 20px;
             font-weight: 600;
-            margin-bottom: 4px;
+            margin-bottom: 6px;
             text-align: center;
         }
 
         .login-subtitle {
-            font-size: 11px;
+            font-size: 13px;
             color: var(--text-secondary);
             text-align: center;
-            margin-bottom: 16px;
+            margin-bottom: 20px;
         }
 
         .login-input {
             width: 100%;
-            padding: 10px 12px;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            font-size: 13px;
-            margin-bottom: 12px;
+            padding: 14px 16px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            font-size: 16px;
+            font-family: inherit;
+            margin-bottom: 16px;
+            -webkit-appearance: none;
+            appearance: none;
         }
 
         .login-input:focus {
             outline: none;
             border-color: var(--blue);
+            box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.15);
         }
 
         .login-btn {
             width: 100%;
-            padding: 10px;
+            padding: 14px;
             background: var(--blue);
             color: white;
             border: none;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 500;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            font-family: inherit;
             cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
         }
 
         .login-btn:hover { background: var(--blue-hover); }
-        .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .login-btn:active { transform: scale(0.98); }
+        .login-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
         .login-error {
             color: var(--red);
-            font-size: 11px;
+            font-size: 13px;
             text-align: center;
-            margin-top: 8px;
+            margin-top: 12px;
             display: none;
+            padding: 8px;
+            background: var(--red-bg);
+            border-radius: 6px;
         }
 
         .login-error.show { display: block; }
+
+        /* Mobile-specific login fixes */
+        @media (max-width: 400px) {
+            .login-card {
+                padding: 24px 20px;
+                border-radius: 12px;
+            }
+            .login-input, .login-btn {
+                font-size: 17px;
+                padding: 16px;
+            }
+        }
     </style>
 </head>
 <body>
     <!-- Login Overlay -->
     <div class="login-overlay" id="loginOverlay">
         <div class="login-card">
-            <div class="login-title">Gantry Fleet</div>
+            <div class="login-title">GantryFleet</div>
             <div class="login-subtitle">Enter your password to continue</div>
-            <input type="password" class="login-input" id="passwordInput" placeholder="Password" autocomplete="current-password">
-            <button class="login-btn" id="loginBtn" onclick="login()">Unlock</button>
+            <form id="loginForm" onsubmit="login(); return false;">
+                <input type="password" class="login-input" id="passwordInput" placeholder="Password" autocomplete="current-password" inputmode="text" enterkeyhint="go" required>
+                <button type="submit" class="login-btn" id="loginBtn">Unlock</button>
+            </form>
             <div class="login-error" id="loginError">Invalid password. Please try again.</div>
         </div>
     </div>
@@ -556,9 +602,9 @@
         <header class="header">
             <div class="brand">
                 <div class="brand-icon">
-                    <svg viewBox="0 0 24 24"><path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.18l6.9 3.45L12 11.09 5.1 7.63 12 4.18z"/></svg>
+                    <img src="/static/gantry-logo.png" alt="Gantry Fleet Logo">
                 </div>
-                <div class="brand-text">Gantry Fleet</div>
+                <div class="brand-text">GantryFleet</div>
             </div>
             <div class="header-status">
                 <span class="status-dot"></span>
@@ -572,8 +618,8 @@
                     <div class="msg system">
                         <div class="msg-avatar">G</div>
                         <div class="msg-content">
-                            <strong>Welcome to Gantry Fleet</strong><br><br>
-                            I'm your AI software architect. Describe what you want to build, and I'll review the requirements, suggest the optimal architecture, and answer any questions about scalability, testing, or deployment before we start building.
+                            <strong>Welcome to GantryFleet</strong><br><br>
+                            I'm your AI Architect Agent. Describe what you want to build—I'll analyze the requirements, break complex projects into iterations, and propose the optimal architecture before we start building.
                         </div>
                     </div>
                 </div>
@@ -584,9 +630,10 @@
                             <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
                             <span class="upload-label">Image</span>
                         </label>
-                        <input type="text" class="input-field" id="prompt-input" placeholder="Describe what you want to build... (optional: attach a mockup above)" autocomplete="off">
+                        <textarea class="input-field" id="prompt-input" placeholder="Describe what you want to build in detail... Paste full project specs, PRDs, or feature lists (supports up to 200K tokens)" rows="2"></textarea>
                         <button class="send-btn" id="send-btn">Send</button>
                     </div>
+                    <div class="input-hint">Tip: For complex projects, paste your full requirements. The AI Architect will analyze and suggest iterations.</div>
                     <div class="image-preview" id="image-preview">
                         <img id="preview-img" src="" alt="Preview">
                         <span class="image-name" id="image-name"></span>
@@ -600,7 +647,7 @@
                     <div>
                         <span class="projects-title">Projects</span>
                         <span class="projects-count" id="projects-count">(0)</span>
-                        <span class="projects-hint" title="Status polling is just server checks; it does not use AI or add model cost.">(no AI cost)</span>
+                        <span class="projects-hint" title="Each build uses AWS Bedrock (Claude) for code generation">(AI-powered)</span>
                     </div>
                     <div class="projects-header-actions">
                         <button type="button" class="clear-btn" id="clear-btn" title="Clear all projects and start from scratch">Clear all</button>
@@ -647,10 +694,26 @@
                 if (data.authenticated) {
                     isAuthenticated = true;
                     loginOverlay.classList.add('hidden');
+                } else {
+                    // Not authenticated - show login and focus password
+                    showLoginOverlay();
                 }
             } catch (e) {
                 console.error('Auth check failed:', e);
+                // On error, show login overlay
+                showLoginOverlay();
             }
+        }
+
+        // Show login overlay and focus password input
+        function showLoginOverlay() {
+            loginOverlay.classList.remove('hidden');
+            // Small delay to ensure overlay is visible before focusing
+            setTimeout(() => {
+                passwordInput.focus();
+                // On iOS, scroll into view
+                passwordInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
         }
 
         // Login function
@@ -673,7 +736,7 @@
                 if (data.authenticated) {
                     isAuthenticated = true;
                     loginOverlay.classList.add('hidden');
-                    addMsg('Welcome to Gantry Fleet. You are now authenticated.', false);
+                    addMsg('Welcome to GantryFleet. You are now authenticated.', false);
                 } else {
                     loginError.classList.add('show');
                 }
@@ -687,10 +750,7 @@
             }
         }
 
-        // Enter key to login
-        passwordInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') login();
-        });
+        // Form handles Enter key automatically via onsubmit
 
         const chatMessages = document.getElementById('chat-messages');
         const promptInput = document.getElementById('prompt-input');
@@ -728,7 +788,7 @@
             const s = status.toUpperCase();
             if (['DEPLOYED', 'SUCCESS', 'PR_OPENED'].includes(s)) return 'live';
             if (['BUILDING', 'ARCHITECTING', 'VALIDATING', 'PUBLISHING', 'HEALING', 'PENDING', 'READY_TO_BUILD'].includes(s)) return 'building';
-            if (['CONSULTING', 'AWAITING_INPUT'].includes(s)) return 'queued';  // V6.5
+            if (['CONSULTING', 'AWAITING_INPUT'].includes(s)) return 'queued';
             if (['FAILED', 'TIMEOUT', 'CRITICAL_FAILURE', 'BLOCKED'].includes(s)) return 'failed';
             return 'queued';
         }
@@ -811,7 +871,7 @@
             imagePreview.classList.remove('active');
         }
 
-        // V6.5: Track current consultation mission
+        // Track current consultation mission
         let currentMissionId = null;
 
         async function handleSend() {
@@ -836,7 +896,7 @@
             addTypingIndicator();
 
             try {
-                // V6.5: Use the new /gantry/voice endpoint (image saved to mission folder and included in repo)
+                // Use the /gantry/voice endpoint (image saved to mission folder and included in repo)
                 const payload = { message: messageContent };
                 if (imageToSend) {
                     payload.image_base64 = imageToSend.data;
@@ -853,7 +913,7 @@
 
                 // Handle auth error
                 if (response.status === 401 || data.needs_auth) {
-                    loginOverlay.classList.remove('hidden');
+                    showLoginOverlay();
                     addMsg('Session expired. Please log in again.', false);
                     return;
                 }
@@ -864,7 +924,7 @@
                     return;
                 }
 
-                // V6.5: Handle consultation loop responses
+                // Handle consultation loop responses
                 const status = data.status;
                 
                 if (status === 'BUILDING') {
@@ -884,13 +944,26 @@
                     }
                     
                 } else if (status === 'AWAITING_INPUT') {
-                    // V6.5: CTO is asking a question
+                    // AI Architect is asking a question
                     currentMissionId = data.mission_id;
                     
                     let responseText = data.speech || data.question || 'Could you tell me more?';
                     
-                    // Show features if provided
-                    if (data.features && data.features.length > 0) {
+                    // Show iteration breakdown if complex project
+                    if (data.iterations && data.iterations.length > 1) {
+                        responseText += `<br><br><strong>Project Breakdown (${data.total_iterations || data.iterations.length} iterations):</strong>`;
+                        data.iterations.forEach(iter => {
+                            const badge = iter.buildable_now 
+                                ? '<span style="background:#d1e7dd;color:#0f5132;padding:2px 6px;border-radius:4px;font-size:9px;margin-left:6px;">NOW</span>'
+                                : '<span style="background:#e9ecef;color:#6c757d;padding:2px 6px;border-radius:4px;font-size:9px;margin-left:6px;">LATER</span>';
+                            responseText += `<br>• <strong>Iteration ${iter.iteration}:</strong> ${escapeHtml(iter.name)}${badge}`;
+                            if (iter.features && iter.features.length > 0) {
+                                responseText += `<br><span style="color:var(--text-muted);margin-left:16px;font-size:11px;">${iter.features.map(f => escapeHtml(f)).join(', ')}</span>`;
+                            }
+                        });
+                    }
+                    // Show features if provided (for simple projects)
+                    else if (data.features && data.features.length > 0) {
                         responseText += `<br><br><strong>Proposed Features:</strong><br>`;
                         responseText += data.features.map(f => `• ${escapeHtml(f)}`).join('<br>');
                     }
@@ -1118,8 +1191,18 @@
 
         // Event listeners
         sendBtn.addEventListener('click', handleSend);
-        promptInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') handleSend();
+        promptInput.addEventListener('keydown', (e) => {
+            // Enter without Shift sends the message, Shift+Enter adds a newline
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+            }
+        });
+        
+        // Auto-resize textarea as user types
+        promptInput.addEventListener('input', () => {
+            promptInput.style.height = 'auto';
+            promptInput.style.height = Math.min(promptInput.scrollHeight, 300) + 'px';
         });
         
         if (refreshBtn) refreshBtn.addEventListener('click', function onRefresh() {
@@ -1152,7 +1235,7 @@
                         await loadProjects();
                     } else if (res.status === 401) {
                         addMsg('<strong>Please log in to clear projects.</strong>');
-                        loginOverlay.classList.remove('hidden');
+                        showLoginOverlay();
                     } else {
                         addMsg('<strong>Clear failed:</strong> ' + (data.speech || data.error || 'Unknown error'));
                     }

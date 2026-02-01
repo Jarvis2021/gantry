@@ -1,0 +1,53 @@
+# -----------------------------------------------------------------------------
+# CLOUDFLARE TUNNEL CONFIGURATION
+# -----------------------------------------------------------------------------
+# This file configures the Cloudflare tunnel for gantryfleet.ai
+#
+# The tunnel token (CLOUDFLARE_TUNNEL_TOKEN) is still required in .env
+# but the service URL mapping is now version-controlled here.
+#
+# To get your tunnel ID and credentials:
+# 1. Go to https://one.dash.cloudflare.com/
+# 2. Navigate to Networks > Tunnels
+# 3. Find your tunnel and note the ID
+# 4. Download credentials.json if using credential file auth
+# -----------------------------------------------------------------------------
+
+# Tunnel identifier (get from Cloudflare Dashboard)
+# This will be overridden by TUNNEL_TOKEN if set
+tunnel: gantry
+
+# Where credentials are stored (optional - token auth preferred)
+# credentials-file: /etc/cloudflared/credentials.json
+
+# Ingress rules - maps hostnames to internal services
+ingress:
+  # Main API endpoint - FastAPI on port 5050
+  - hostname: gantryfleet.ai
+    service: http://gantry_core:5050
+    originRequest:
+      connectTimeout: 30s
+      noTLSVerify: false
+
+  # API subdomain (optional - same service)
+  - hostname: api.gantryfleet.ai
+    service: http://gantry_core:5050
+    originRequest:
+      connectTimeout: 30s
+
+  # WebSocket support for real-time updates
+  - hostname: ws.gantryfleet.ai
+    service: http://gantry_core:5050
+    originRequest:
+      connectTimeout: 30s
+      # WebSocket-specific settings
+      httpHostHeader: gantryfleet.ai
+
+  # Catch-all rule (required by cloudflared)
+  - service: http_status:404
+
+# Logging
+# loglevel: info
+
+# Metrics (optional - expose prometheus metrics)
+# metrics: localhost:9090

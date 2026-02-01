@@ -1,11 +1,12 @@
 # =============================================================================
 # GANTRY FLEET MANAGER TESTS
 # =============================================================================
-# Tests for the fleet orchestration module.
+# Tests for the async fleet orchestration module.
 # =============================================================================
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestFleetManager:
@@ -45,11 +46,11 @@ class TestFleetManager:
         assert MAX_RETRIES >= 1
         assert PROGRESS_UPDATE_SECONDS > 0
 
-    def test_progress_tracker_exists(self):
-        """ProgressTracker class should exist."""
-        from src.core.fleet import ProgressTracker
+    def test_async_progress_tracker_exists(self):
+        """AsyncProgressTracker class should exist."""
+        from src.core.fleet import AsyncProgressTracker
 
-        assert ProgressTracker is not None
+        assert AsyncProgressTracker is not None
 
 
 class TestMissionFlow:
@@ -62,22 +63,25 @@ class TestMissionFlow:
     @patch("src.core.fleet.PolicyGate")
     @patch("src.core.fleet.update_mission_status")
     @patch("src.core.fleet.create_mission")
-    def test_dispatch_starts_thread(
+    @pytest.mark.asyncio
+    async def test_dispatch_creates_task(
         self, mock_create, mock_update, mock_policy, mock_pub, mock_arch, mock_foundry, mock_init_db
     ):
-        """dispatch_mission should start a background thread."""
+        """dispatch_mission should create an async task."""
         from src.core.fleet import FleetManager
+
+        mock_create.return_value = "test-uuid-123"
 
         fleet = FleetManager()
 
-        with patch("src.core.fleet.threading.Thread") as mock_thread:
-            mock_thread_instance = MagicMock()
-            mock_thread.return_value = mock_thread_instance
+        with patch("asyncio.create_task") as mock_create_task:
+            mock_task = MagicMock()
+            mock_create_task.return_value = mock_task
 
-            fleet.dispatch_mission("Build an app")
+            result = await fleet.dispatch_mission("Build an app")
 
-            # Thread should be started
-            mock_thread_instance.start.assert_called_once()
+            # Should return mission ID
+            assert result == "test-uuid-123"
 
     @patch("src.core.fleet.init_db")
     @patch("src.core.fleet.Foundry")
@@ -85,54 +89,54 @@ class TestMissionFlow:
     @patch("src.core.fleet.Publisher")
     @patch("src.core.fleet.PolicyGate")
     @patch("src.core.fleet.create_mission")
-    def test_dispatch_accepts_flags(
+    @pytest.mark.asyncio
+    async def test_dispatch_accepts_flags(
         self, mock_create, mock_policy, mock_pub, mock_arch, mock_foundry, mock_init_db
     ):
         """dispatch_mission should accept deploy and publish flags."""
         from src.core.fleet import FleetManager
 
-        # create_mission returns a string (UUID)
         mock_create.return_value = "test-uuid-12345678-abcd"
 
         fleet = FleetManager()
 
-        with patch("src.core.fleet.threading.Thread") as mock_thread:
-            mock_thread_instance = MagicMock()
-            mock_thread.return_value = mock_thread_instance
+        with patch("asyncio.create_task") as mock_create_task:
+            mock_task = MagicMock()
+            mock_create_task.return_value = mock_task
 
-            # dispatch_mission signature: (prompt, deploy=True, publish=True)
-            result = fleet.dispatch_mission("Build app", deploy=False, publish=False)
+            result = await fleet.dispatch_mission("Build app", deploy=False, publish=False)
 
-            # Should have called thread
-            mock_thread.assert_called_once()
-            # Result should be the mission_id string
             assert result == "test-uuid-12345678-abcd"
 
 
-class TestProgressTracker:
-    """Test ProgressTracker class."""
+class TestAsyncProgressTracker:
+    """Test AsyncProgressTracker class."""
 
     @patch("src.core.fleet.init_db")
-    def test_progress_tracker_init(self, mock_init_db):
-        """ProgressTracker should initialize."""
-        from src.core.fleet import ProgressTracker
+    def test_async_progress_tracker_init(self, mock_init_db):
+        """AsyncProgressTracker should initialize."""
+        from src.core.fleet import AsyncProgressTracker
 
-        tracker = ProgressTracker("test-mission", "BUILDING")
+        tracker = AsyncProgressTracker("test-mission", "BUILDING")
         assert tracker is not None
 
     @patch("src.core.fleet.init_db")
-    def test_progress_tracker_start_stop(self, mock_init_db):
-        """ProgressTracker should start and stop."""
-        from src.core.fleet import ProgressTracker
+    def test_async_progress_tracker_init_with_status(self, mock_init_db):
+        """AsyncProgressTracker should store mission_id and status."""
+        from src.core.fleet import AsyncProgressTracker
 
-        tracker = ProgressTracker("test-mission", "BUILDING")
+        tracker = AsyncProgressTracker("test-mission", "BUILDING")
+        assert tracker.mission_id == "test-mission"
+        assert tracker.phase == "BUILDING"
 
-        # Start returns self
-        result = tracker.start()
-        assert result == tracker
+    @patch("src.core.fleet.init_db")
+    @pytest.mark.asyncio
+    async def test_async_progress_tracker_context_manager(self, mock_init_db):
+        """AsyncProgressTracker should work as async context manager."""
+        from src.core.fleet import AsyncProgressTracker
 
-        # Stop should work without error
-        tracker.stop()
+        async with AsyncProgressTracker("test-mission", "BUILDING") as tracker:
+            assert tracker is not None
 
 
 class TestFleetIntegration:
@@ -140,10 +144,10 @@ class TestFleetIntegration:
 
     def test_imports_work(self):
         """All required imports should work."""
-        from src.core.fleet import FleetManager, ProgressTracker, MAX_RETRIES
+        from src.core.fleet import MAX_RETRIES, AsyncProgressTracker, FleetManager
 
         assert FleetManager is not None
-        assert ProgressTracker is not None
+        assert AsyncProgressTracker is not None
         assert MAX_RETRIES is not None
 
     @patch("src.core.fleet.init_db")
@@ -151,12 +155,27 @@ class TestFleetIntegration:
     @patch("src.core.fleet.Architect")
     @patch("src.core.fleet.Publisher")
     @patch("src.core.fleet.PolicyGate")
-    def test_fleet_has_heal_method(
+    def test_fleet_has_run_mission_method(
         self, mock_policy, mock_pub, mock_arch, mock_foundry, mock_init_db
     ):
-        """FleetManager should have _heal_and_retry method."""
+        """FleetManager should have _run_mission method."""
         from src.core.fleet import FleetManager
 
         fleet = FleetManager()
-        assert hasattr(fleet, "_heal_and_retry")
-        assert callable(fleet._heal_and_retry)
+        assert hasattr(fleet, "_run_mission")
+        assert callable(fleet._run_mission)
+
+    @patch("src.core.fleet.init_db")
+    @patch("src.core.fleet.Foundry")
+    @patch("src.core.fleet.Architect")
+    @patch("src.core.fleet.Publisher")
+    @patch("src.core.fleet.PolicyGate")
+    def test_fleet_has_process_voice_input(
+        self, mock_policy, mock_pub, mock_arch, mock_foundry, mock_init_db
+    ):
+        """FleetManager should have process_voice_input method."""
+        from src.core.fleet import FleetManager
+
+        fleet = FleetManager()
+        assert hasattr(fleet, "process_voice_input")
+        assert callable(fleet.process_voice_input)

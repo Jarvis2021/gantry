@@ -4,10 +4,7 @@
 # Comprehensive tests for Docker infrastructure.
 # =============================================================================
 
-import os
-from unittest.mock import MagicMock, patch
 
-import pytest
 
 
 class TestDockerProvider:

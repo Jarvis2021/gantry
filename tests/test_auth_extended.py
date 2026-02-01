@@ -1,14 +1,10 @@
 # =============================================================================
 # GANTRY AUTH EXTENDED TESTS
 # =============================================================================
-# Additional tests for authentication and rate limiting.
+# Additional tests for Argon2 authentication and rate limiting.
 # =============================================================================
 
-import os
 import time
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 
 class TestRateLimiterExtended:
@@ -30,11 +26,11 @@ class TestRateLimiterExtended:
 
         # First 3 should be allowed
         for i in range(3):
-            allowed, remaining = limiter.is_allowed("test-client")
+            allowed = limiter.is_allowed("test-client")
             assert allowed is True
 
         # 4th should be blocked
-        allowed, remaining = limiter.is_allowed("test-client")
+        allowed = limiter.is_allowed("test-client")
         assert allowed is False
 
     def test_rate_limiter_different_clients(self):
@@ -46,58 +42,24 @@ class TestRateLimiterExtended:
         # Client A
         limiter.is_allowed("client-a")
         limiter.is_allowed("client-a")
-        allowed_a, _ = limiter.is_allowed("client-a")
+        allowed_a = limiter.is_allowed("client-a")
 
         # Client B should still be allowed
-        allowed_b, _ = limiter.is_allowed("client-b")
+        allowed_b = limiter.is_allowed("client-b")
 
         assert allowed_a is False
         assert allowed_b is True
 
 
-class TestPasswordHashing:
-    """Test password hashing functions."""
+class TestArgon2Password:
+    """Test Argon2 password functions."""
 
-    def test_hash_password_returns_hex(self):
-        """hash_password should return hex string."""
-        from src.core.auth import hash_password
+    def test_verify_password_returns_bool(self):
+        """verify_password should return boolean."""
+        from src.core.auth import verify_password
 
-        result = hash_password("test123")
-        assert len(result) == 64  # SHA256 hex
-        assert all(c in "0123456789abcdef" for c in result)
-
-    def test_hash_password_deterministic(self):
-        """hash_password should be deterministic."""
-        from src.core.auth import hash_password
-
-        result1 = hash_password("mypassword")
-        result2 = hash_password("mypassword")
-        assert result1 == result2
-
-    def test_hash_password_different_for_different_input(self):
-        """hash_password should differ for different inputs."""
-        from src.core.auth import hash_password
-
-        result1 = hash_password("password1")
-        result2 = hash_password("password2")
-        assert result1 != result2
-
-
-class TestVerifyPassword:
-    """Test password verification."""
-
-    def test_verify_password_correct(self):
-        """verify_password should return True for correct password."""
-        from src.core.auth import verify_password, hash_password
-
-        with patch("src.core.auth.DEFAULT_PASSWORD_HASH", hash_password("correct")):
-            from importlib import reload
-            import src.core.auth
-
-            # Direct check
-            expected_hash = hash_password("correct")
-            actual_hash = hash_password("correct")
-            assert expected_hash == actual_hash
+        result = verify_password("anypassword")
+        assert isinstance(result, bool)
 
 
 class TestGuardrails:
@@ -167,28 +129,47 @@ class TestRateLimitEntry:
         assert entry.blocked_until == 0
 
 
-class TestSessionTimeout:
-    """Test session timeout constant."""
+class TestTokenBucket:
+    """Test TokenBucket rate limiting."""
 
-    def test_session_timeout_defined(self):
-        """SESSION_TIMEOUT should be defined."""
-        from src.core.auth import SESSION_TIMEOUT
+    def test_token_bucket_allows_burst(self):
+        """TokenBucket should allow burst up to capacity."""
+        from src.core.auth import TokenBucket
 
-        assert SESSION_TIMEOUT > 0
-        assert SESSION_TIMEOUT == 3600  # 1 hour
+        bucket = TokenBucket(rate=1.0, capacity=5)
+        # Should allow 5 requests in a burst
+        for _ in range(5):
+            assert bucket.consume("user1") is True
+
+    def test_token_bucket_refills(self):
+        """TokenBucket should refill over time."""
+        from src.core.auth import TokenBucket
+
+        bucket = TokenBucket(rate=10.0, capacity=5)  # 10 tokens per second
+        # Consume all
+        for _ in range(5):
+            bucket.consume("user1")
+        
+        # Wait for refill
+        time.sleep(0.2)  # Should get ~2 tokens
+        assert bucket.consume("user1") is True
 
 
-class TestRateLimitConstants:
-    """Test rate limit constants."""
+class TestAuthResult:
+    """Test AuthResult dataclass."""
 
-    def test_rate_limit_window_defined(self):
-        """RATE_LIMIT_WINDOW should be defined."""
-        from src.core.auth import RATE_LIMIT_WINDOW
+    def test_auth_result_success(self):
+        """AuthResult should store success state."""
+        from src.core.auth import AuthResult
 
-        assert RATE_LIMIT_WINDOW > 0
+        result = AuthResult(success=True, token="test-token")
+        assert result.success is True
+        assert result.token == "test-token"
 
-    def test_rate_limit_max_requests_defined(self):
-        """RATE_LIMIT_MAX_REQUESTS should be defined."""
-        from src.core.auth import RATE_LIMIT_MAX_REQUESTS
+    def test_auth_result_failure(self):
+        """AuthResult should store failure error."""
+        from src.core.auth import AuthResult
 
-        assert RATE_LIMIT_MAX_REQUESTS > 0
+        result = AuthResult(success=False, error="Invalid password")
+        assert result.success is False
+        assert result.error == "Invalid password"

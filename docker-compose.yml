@@ -86,6 +86,8 @@ services:
   gantry_core:
     build: .
     container_name: gantry_core
+    ports:
+      - "5050:5050"
     environment:
       # Docker connection via proxy (NOT direct socket)
       - DOCKER_HOST=tcp://docker-proxy:2375
@@ -105,7 +107,7 @@ services:
       # Vercel Deployment
       - VERCEL_TOKEN=${VERCEL_TOKEN}
       # Gantry Configuration
-      - GANTRY_PORT=5000
+      - GANTRY_PORT=5050
       - GANTRY_ENV=production
       # Auth Configuration (use GANTRY_PASSWORD for plain text, auto-hashed)
       - GANTRY_PASSWORD=${GANTRY_PASSWORD:-}
@@ -136,14 +138,21 @@ services:
   # - Automatic HTTPS
   # - DDoS protection
   # - Works behind NAT/firewalls
+  #
+  # Configuration:
+  # - Service URL mapping is in cloudflare/config.yml (version-controlled)
+  # - Tunnel token is in .env (CLOUDFLARE_TUNNEL_TOKEN)
   # ---------------------------------------------------------------------------
   gantry_uplink:
     image: cloudflare/cloudflared:latest
     container_name: gantry_uplink
-    # Use named tunnel with token for persistent domain
-    command: tunnel run
+    # Use local config file for service URL mapping + token for auth
+    command: tunnel --config /etc/cloudflared/config.yml run
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    volumes:
+      # Mount local config (version-controlled service URL mapping)
+      - ./cloudflare/config.yml:/etc/cloudflared/config.yml:ro
     networks:
       - gantry_net
     depends_on:

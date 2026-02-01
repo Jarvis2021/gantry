@@ -4,10 +4,6 @@
 # Tests for the Git infrastructure client.
 # =============================================================================
 
-import pytest
-from unittest.mock import MagicMock, patch
-from pathlib import Path
-import os
 
 
 class TestGitProvider:

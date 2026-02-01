@@ -4,9 +4,7 @@
 # Additional tests for policy gate module.
 # =============================================================================
 
-from unittest.mock import MagicMock, patch
 
-import pytest
 
 from src.domain.models import FileSpec, GantryManifest, StackType
 

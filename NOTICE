@@ -1,0 +1,34 @@
+GantryFleet
+Copyright 2026 Pramod Kumar Voola
+
+This product includes software developed at
+Pramod Kumar Voola (https://github.com/pramodkv/gantryfleet)
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+-------------------------------------------------------------------------------
+THIRD-PARTY COMPONENTS
+-------------------------------------------------------------------------------
+
+This software makes use of the following open source components:
+
+- FastAPI (MIT License) - https://github.com/tiangolo/fastapi
+- Pydantic (MIT License) - https://github.com/pydantic/pydantic
+- Rich (MIT License) - https://github.com/Textualize/rich
+- Docker SDK for Python (Apache 2.0) - https://github.com/docker/docker-py
+- psycopg2 (LGPL) - https://github.com/psycopg/psycopg2
+- requests (Apache 2.0) - https://github.com/psf/requests
+- argon2-cffi (MIT License) - https://github.com/hynek/argon2-cffi
+
+For enterprise and advanced engagement, contact:
+Pramod Kumar Voola (pramod.voola@gmail.com)

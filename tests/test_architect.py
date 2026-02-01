@@ -7,7 +7,6 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from src.domain.models import FileSpec, GantryManifest, StackType
 
 
@@ -276,8 +275,11 @@ class TestArchitectMethods:
                         {
                             "project_name": "FixedApp",
                             "stack": "node",
-                            "files": [{"path": "index.js", "content": "console.log('fixed');"}],
-                            "audit_command": "node index.js",
+                            "files": [
+                                {"path": "index.js", "content": "console.log('fixed');"},
+                                {"path": "tests/index.test.js", "content": "console.log('All tests passed!');"},
+                            ],
+                            "audit_command": "node tests/index.test.js",
                             "run_command": "node index.js",
                         }
                     )

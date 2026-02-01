@@ -38,12 +38,16 @@ COPY policy.yaml /app/policy.yaml
 # Create missions directory for evidence packs
 RUN mkdir -p /app/missions
 
-# Expose Flask port
-EXPOSE 5000
+# Expose FastAPI port
+EXPOSE 5050
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:5000/health || exit 1
+# Health check (enhanced 2026 pattern with /ready endpoint)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:5050/health || exit 1
 
-# Run the Fleet Manager
-CMD ["python", "src/main.py"]
+# Copy skills and prompts directories
+COPY src/skills/ /app/src/skills/
+COPY prompts/ /app/prompts/
+
+# Run FastAPI with uvicorn (async, WebSocket support)
+CMD ["uvicorn", "src.main_fastapi:app", "--host", "0.0.0.0", "--port", "5050"]

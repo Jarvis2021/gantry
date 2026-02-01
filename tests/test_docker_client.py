@@ -4,8 +4,6 @@
 # Tests for the Docker infrastructure client.
 # =============================================================================
 
-import pytest
-from unittest.mock import MagicMock, patch
 
 
 class TestDockerClient:
