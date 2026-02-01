@@ -287,6 +287,9 @@ class Foundry:
 
         # FAST PATH: Check manifest directly first (no container exec needed)
         # This is more reliable than shell commands that can have parsing issues
+        file_paths = [f.path for f in manifest.files]
+        console.print(f"[dim][FOUNDRY] Files in manifest: {file_paths}[/dim]")
+
         has_static = any(
             f.path in ("public/index.html", "index.html", "public/index.htm", "index.htm")
             for f in manifest.files
