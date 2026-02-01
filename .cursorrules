@@ -209,7 +209,7 @@
    resource timeouts. Shall I proceed?"
 
 # -----------------------------------------------------------------------------
-# 12. ARCHITECTURE v2.0 PATTERNS (REQUIRED)
+# 13. ARCHITECTURE v2.0 PATTERNS (REQUIRED)
 # -----------------------------------------------------------------------------
 # The codebase has been upgraded to v2.0 architecture. Follow these patterns:
 #
@@ -244,7 +244,7 @@
   - Maximum 50 lines per function enforced.
 
 # -----------------------------------------------------------------------------
-# 13. FILE NAMING CONVENTIONS
+# 14. FILE NAMING CONVENTIONS
 # -----------------------------------------------------------------------------
 - **V2 MODULES**: New architecture files use `_v2` suffix during migration:
   - `auth_v2.py`, `fleet_v2.py`, `main_fastapi.py`

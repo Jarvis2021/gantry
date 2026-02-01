@@ -68,7 +68,7 @@ flowchart TB
     subgraph Foundry["Foundry (Docker)"]
         Pod["Project Pod<br/>Ephemeral"]
         DMS["Dead Man's Switch<br/>180s Timeout"]
-        Limits["Resource Limits<br/>512MB RAM"]
+        Limits["Resource Limits<br/>512MB RAM, 50% CPU"]
     end
 
     subgraph Deploy["Deployment"]
@@ -114,7 +114,7 @@ flowchart TB
 
 ### Consultation Flow (Primary: Voice / Chat)
 
-This is the main V6.5 path: **Voice/Chat → CTO Proposal → User Feedback → “Proceed” → Build.**
+This is the main V6.5 path: **Voice/Chat → CTO Proposal → User Feedback → "Proceed" → Build.**
 
 ```mermaid
 sequenceDiagram
@@ -148,12 +148,12 @@ sequenceDiagram
     Fleet->>Fleet: _dispatch_build()
 
     rect rgb(255, 248, 240)
-        Note over Fleet,GitHub: Phase 2: Build pipeline
+        Note over Fleet,GitHub: Phase 2: Build pipeline (protected by semaphore)
         Fleet->>Architect: draft_blueprint(prompt, design_target=...)
         Architect-->>Fleet: GantryManifest
-        Fleet->>Pod: Build + audit (self-heal up to 3)
+        Fleet->>Pod: Build + audit (self-heal up to 3, 10min timeout)
         Pod-->>Fleet: Audit passed
-        Fleet->>Vercel: Deploy
+        Fleet->>Vercel: Deploy (120s timeout)
         Vercel-->>Fleet: Live URL
         Fleet->>GitHub: Open PR
         GitHub-->>Fleet: PR URL
@@ -166,7 +166,7 @@ sequenceDiagram
 
 ### Direct Build (Legacy / Bypass Consultation)
 
-Single-shot build without the consultation loop (e.g. automation or “build exactly this”).
+Single-shot build without the consultation loop (e.g. automation or "build exactly this").
 
 ```mermaid
 sequenceDiagram
@@ -184,7 +184,7 @@ sequenceDiagram
     Fleet-->>API: mission_id
     API-->>Client: 202 {mission_id, speech: "Gantry assumes control."}
 
-    Note over Fleet,GitHub: Background thread
+    Note over Fleet,GitHub: Background thread (semaphore protected)
     Fleet->>Architect: draft_blueprint(voice_memo)
     Architect-->>Fleet: GantryManifest
     Fleet->>Pod: Build + audit (self-heal up to 3)
@@ -243,7 +243,59 @@ Relevant fields for V6.5:
 - **API**: Flask + session auth (password, SHA256 or env hash), rate limiting, guardrails.
 - **Policy Gate**: Forbidden patterns, stack whitelist, file limits (`policy.yaml`).
 - **Docker**: No direct socket access; use Docker proxy (`tcp://docker-proxy:2375`).
-- **Pod**: Ephemeral, 512MB limit, 180s Dead Man’s Switch.
+- **Pod**: Ephemeral, 512MB limit, 50% CPU cap, 180s Dead Man's Switch.
+
+---
+
+## Robustness & Resource Protection
+
+Gantry implements multiple layers of protection against timeouts and resource exhaustion:
+
+### Container Execution Safety
+
+| Protection | Value | Description |
+|------------|-------|-------------|
+| **Dead Man's Switch** | 180s | Build timeout (kills container) |
+| **Exec Timeout** | 120s | Per-command timeout (`_exec_with_timeout`) |
+| **Memory Limit** | 512MB | Container `mem_limit` |
+| **CPU Limit** | 50% of 1 core | `cpu_period`, `cpu_quota` |
+| **Dependency Install** | 90s | pip/npm install timeout |
+
+### Fleet Manager Protection
+
+| Protection | Value | Description |
+|------------|-------|-------------|
+| **Concurrent Missions** | 3 max | Semaphore prevents server exhaustion |
+| **Mission Timeout** | 600s (10 min) | Overall limit including all retries |
+| **Self-Healing Retries** | 3 max | Before giving up |
+| **Progress Tracking** | Context manager | Prevents thread leaks |
+
+### Database Safety
+
+| Protection | Value | Description |
+|------------|-------|-------------|
+| **Connection Timeout** | 10s | Prevents hanging connections |
+| **Query Timeout** | 30s | PostgreSQL statement_timeout |
+| **Pool Size** | 10 | Connection pool limit |
+
+### Deployment Safety
+
+| Protection | Value | Description |
+|------------|-------|-------------|
+| **Deploy Timeout** | 120s | Vercel CLI timeout |
+| **Verification Retries** | 3 | Check URL accessibility |
+
+```mermaid
+flowchart LR
+    subgraph Protection["Resource Protection Layers"]
+        Semaphore["Semaphore<br/>max 3 concurrent"]
+        MissionTimeout["Mission Timeout<br/>600s total"]
+        ExecTimeout["Exec Timeout<br/>120s per command"]
+        DMS["Dead Man's Switch<br/>180s per build"]
+    end
+    
+    Request --> Semaphore --> MissionTimeout --> ExecTimeout --> DMS --> Result
+```
 
 ---
 
@@ -268,4 +320,4 @@ The **primary production path** is Flask + Consultant + Fleet (`src/main.py` + `
 
 ---
 
-*Last updated: January 2026 (V6.5)*
+*Last updated: January 2026 (V6.5 with robustness fixes)*
