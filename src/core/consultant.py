@@ -434,8 +434,25 @@ class Consultant:
                     )
                 )
 
+            # HARD ENFORCEMENT: Never READY_TO_BUILD on first message
+            # The AI sometimes ignores the system prompt, so we enforce it here
+            status = result.get("status", "NEEDS_INPUT")
+            if status == "READY_TO_BUILD" and len(conversation) == 1:
+                console.print(
+                    "[yellow][AI-ARCHITECT] Overriding READY_TO_BUILD on first message - "
+                    "must ask at least one question first[/yellow]"
+                )
+                status = "NEEDS_CONFIRMATION"
+                # If AI didn't provide a question, generate a default one
+                if not result.get("question"):
+                    result["question"] = (
+                        "I can build that! Before I start, any specific preferences? "
+                        "(e.g., color theme, additional features, design style)"
+                    )
+                    result["speech"] = "I can build that. Any specific preferences before I start?"
+
             return ConsultantResponse(
-                status=result.get("status", "NEEDS_INPUT"),
+                status=status,
                 question=result.get("question"),
                 proposed_stack=result.get("proposed_stack"),
                 design_target=result.get("design_target"),
