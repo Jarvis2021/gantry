@@ -33,6 +33,11 @@ GantryFleet is a **production-grade AI software factory** that transforms natura
 
 ## High-Level Architecture
 
+![GantryFleet Architecture](assets/Architecture1.png)
+
+<details>
+<summary>View as Mermaid Diagram</summary>
+
 ```mermaid
 flowchart TB
     subgraph External["External Layer"]
@@ -97,6 +102,8 @@ flowchart TB
     BB --> Missions
     Missions -.->|"injected into pod"| Foundry
 ```
+
+</details>
 
 ---
 
