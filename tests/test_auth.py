@@ -121,7 +121,7 @@ class TestRateLimiter:
         limiter = RateLimiter(window=60, max_requests=3)
         for _ in range(3):
             limiter.is_allowed("client1")
-        
+
         allowed, remaining = limiter.is_allowed("client1")
         assert allowed is False
         assert remaining == 0
@@ -131,11 +131,11 @@ class TestRateLimiter:
         limiter = RateLimiter(window=60, max_requests=2)
         limiter.is_allowed("client1")
         limiter.is_allowed("client1")
-        
+
         # client1 is at limit
         allowed1, _ = limiter.is_allowed("client1")
         assert allowed1 is False
-        
+
         # client2 should still be allowed
         allowed2, remaining2 = limiter.is_allowed("client2")
         assert allowed2 is True

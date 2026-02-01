@@ -30,14 +30,14 @@ def mock_docker_client():
     client = MagicMock()
     client.ping.return_value = True
     client.images.get.return_value = MagicMock()
-    
+
     container = MagicMock()
     container.short_id = "abc123"
     container.exec_run.return_value = (0, b"Success")
     container.stop.return_value = None
-    
+
     client.containers.run.return_value = container
-    
+
     return client
 
 
@@ -59,10 +59,10 @@ def mock_github_api():
             json=lambda: {
                 "html_url": "https://github.com/test/repo",
                 "clone_url": "https://github.com/test/repo.git",
-            }
+            },
         )
-        
+
         # Mock PR creation
         mock_get.return_value = MagicMock(status_code=200)
-        
+
         yield {"post": mock_post, "get": mock_get}

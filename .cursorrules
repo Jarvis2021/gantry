@@ -178,3 +178,48 @@
 #
 # If testing is not possible (e.g., requires external service), explicitly state:
 # "PENDING VERIFICATION: [reason]" — never claim completion.
+
+# -----------------------------------------------------------------------------
+# 12. ARCHITECTURE v2.0 PATTERNS (REQUIRED)
+# -----------------------------------------------------------------------------
+# The codebase has been upgraded to v2.0 architecture. Follow these patterns:
+#
+- **FASTAPI OVER FLASK**:
+  - Use `main_fastapi.py` as the primary entrypoint.
+  - All new endpoints must be async (`async def`).
+  - Use dependency injection via `Depends()`.
+  - Leverage auto-generated OpenAPI docs at `/docs`.
+- **WEBSOCKET FOR REAL-TIME**:
+  - Use WebSocket (`/gantry/ws/{mission_id}`) for status updates.
+  - Broadcast via `ConnectionManager.broadcast()`.
+  - Never rely on HTTP polling for real-time updates.
+- **ARGON2 FOR PASSWORDS**:
+  - Use `auth_v2.py` with Argon2 password hashing.
+  - NEVER use SHA256, MD5, or other weak hashing.
+  - Support pre-hashed passwords via `GANTRY_PASSWORD_HASH` env var.
+- **TOKEN BUCKET RATE LIMITING**:
+  - Apply per-user rate limiting with TokenBucket (not just per-IP).
+  - Both `RateLimiter` (IP) and `TokenBucket` (user) must be used.
+- **PLUGGABLE SKILLS**:
+  - New AI capabilities go in `src/skills/{skill-name}/`.
+  - Each skill has: `handler.py`, `__init__.py`, `SKILL.md`.
+  - Skills auto-load at startup via `SkillRegistry.load_all()`.
+  - Never hardcode skills in architect.py.
+- **EXTERNAL PROMPTS**:
+  - AI prompts live in `prompts/*.md` files.
+  - Load with `_load_prompt("name")` pattern.
+  - Never embed 50+ line prompts in Python code.
+- **SPLIT FUNCTIONS**:
+  - Use `fleet_v2.py` pattern: split long functions into phases.
+  - Each phase function: `_phase_architect()`, `_phase_build()`, etc.
+  - Maximum 50 lines per function enforced.
+
+# -----------------------------------------------------------------------------
+# 13. FILE NAMING CONVENTIONS
+# -----------------------------------------------------------------------------
+- **V2 MODULES**: New architecture files use `_v2` suffix during migration:
+  - `auth_v2.py`, `fleet_v2.py`, `main_fastapi.py`
+  - After migration complete, these become the primary files.
+- **SKILLS**: `src/skills/{skill-name}/handler.py`
+- **PROMPTS**: `prompts/{prompt-name}.md`
+- **TESTS**: `tests/test_{module}.py`

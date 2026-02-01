@@ -1,0 +1,14 @@
+# Assets Directory
+
+This directory holds architecture diagrams and images for documentation.
+
+## How to Add Diagrams
+
+1. Create diagrams using Mermaid Live Editor: https://mermaid.live
+2. Export as PNG or SVG
+3. Save to this folder
+4. Reference in markdown: `![Description](./assets/filename.png)`
+
+## Current Diagrams
+
+- (Add your diagrams here)

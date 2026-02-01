@@ -365,6 +365,45 @@ def list_all_missions():
     )
 
 
+@app.route("/gantry/search", methods=["GET"])
+def search_similar():
+    """
+    Search for similar projects (for resume/continue feature).
+
+    Query params:
+        q: Search query (keywords)
+        limit: Max results (default 5)
+    """
+    from src.core.db import search_missions
+
+    query = request.args.get("q", "")
+    limit = int(request.args.get("limit", "5"))
+
+    if not query:
+        return jsonify({"results": [], "message": "No search query provided"})
+
+    # Split query into keywords
+    keywords = query.lower().split()
+
+    results = search_missions(keywords, limit=limit)
+
+    return jsonify(
+        {
+            "query": query,
+            "count": len(results),
+            "results": [
+                {
+                    "mission_id": m.id,
+                    "prompt": m.prompt,
+                    "status": m.status,
+                    "created_at": m.created_at,
+                }
+                for m in results
+            ],
+        }
+    )
+
+
 def print_banner() -> None:
     """Print the Gantry startup banner."""
     banner = """
