@@ -285,77 +285,69 @@ class Foundry:
         """
         console.print("[cyan][FOUNDRY] Verifying Vercel serverless structure...[/cyan]")
 
-        # More lenient check - accept static-only or API projects
+        # FAST PATH: Check manifest directly first (no container exec needed)
+        # This is more reliable than shell commands that can have parsing issues
+        has_static = any(
+            f.path in ("public/index.html", "index.html", "public/index.htm", "index.htm")
+            for f in manifest.files
+        )
+        has_api_js = any(
+            f.path.startswith("api/") and f.path.endswith(".js")
+            for f in manifest.files
+        )
+        has_api_py = any(
+            f.path.startswith("api/") and f.path.endswith(".py")
+            for f in manifest.files
+        )
+        has_vercel_json = any(f.path == "vercel.json" for f in manifest.files)
+
+        # Log what we found
+        console.print(f"[dim][FOUNDRY] Structure: static={has_static}, api_js={has_api_js}, api_py={has_api_py}, vercel.json={has_vercel_json}[/dim]")
+
+        # Valid if we have static content OR a valid API
+        if has_static:
+            console.print("[dim][FOUNDRY] STATIC_SITE_VALID[/dim]")
+            console.print("[dim][FOUNDRY] STRUCTURE_VALID[/dim]")
+            return True
+
+        if manifest.stack == StackType.NODE and has_api_js:
+            # Check API file has valid exports
+            for f in manifest.files:
+                if f.path.startswith("api/") and f.path.endswith(".js"):
+                    if any(kw in f.content for kw in ["export default", "module.exports", "exports.", "export function", "export const"]):
+                        console.print("[dim][FOUNDRY] API_VALID[/dim]")
+                        console.print("[dim][FOUNDRY] STRUCTURE_VALID[/dim]")
+                        return True
+
+        if manifest.stack == StackType.PYTHON and has_api_py:
+            # Check API file has valid handler
+            for f in manifest.files:
+                if f.path.startswith("api/") and f.path.endswith(".py"):
+                    if any(kw in f.content for kw in ["class handler", "def handler", "def app"]):
+                        console.print("[dim][FOUNDRY] API_VALID[/dim]")
+                        console.print("[dim][FOUNDRY] STRUCTURE_VALID[/dim]")
+                        return True
+
+        # FALLBACK: Container check for edge cases (files might be generated during build)
         if manifest.stack == StackType.NODE:
-            check_cmd = """
-            # Check for valid Vercel structure (multiple patterns allowed)
-            VALID=0
-            
-            # Pattern 1: Static site (public/index.html exists)
-            if [ -f public/index.html ] || [ -f index.html ]; then
-                VALID=1
-                echo "STATIC_SITE_VALID"
-            fi
-            
-            # Pattern 2: API exists with valid exports (ESM or CommonJS)
-            if [ -f api/index.js ]; then
-                # Accept ESM (export default) OR CommonJS (module.exports)
-                if grep -qE "(export default|module\\.exports|exports\\.|export function|export const)" api/index.js; then
-                    VALID=1
-                    echo "API_VALID"
-                fi
-            fi
-            
-            # Pattern 3: vercel.json exists
-            if [ -f vercel.json ]; then
-                echo "VERCEL_CONFIG_VALID"
-            fi
-            
-            # Any valid pattern = success
-            if [ "$VALID" = "1" ]; then
-                echo "STRUCTURE_VALID"
-                exit 0
-            else
-                echo "INVALID: Need public/index.html OR api/index.js with exports"
-                exit 1
-            fi
-            """
+            check_cmd = 'test -f public/index.html && echo "STRUCTURE_VALID" || (test -f index.html && echo "STRUCTURE_VALID" || echo "INVALID")'
         elif manifest.stack == StackType.PYTHON:
-            check_cmd = """
-            VALID=0
-            
-            # Pattern 1: Static site
-            if [ -f public/index.html ] || [ -f index.html ]; then
-                VALID=1
-                echo "STATIC_SITE_VALID"
-            fi
-            
-            # Pattern 2: Python API with handler
-            if [ -f api/index.py ]; then
-                # Accept class handler or def handler
-                if grep -qE "(class handler|def handler|def app)" api/index.py; then
-                    VALID=1
-                    echo "API_VALID"
-                fi
-            fi
-            
-            if [ "$VALID" = "1" ]; then
-                echo "STRUCTURE_VALID"
-                exit 0
-            else
-                echo "INVALID: Need public/index.html OR api/index.py with handler"
-                exit 1
-            fi
-            """
+            check_cmd = 'test -f public/index.html && echo "STRUCTURE_VALID" || (test -f index.html && echo "STRUCTURE_VALID" || echo "INVALID")'
         else:
             return True
 
-        exit_code, output = self._exec_with_timeout(container, check_cmd, timeout=30)
+        try:
+            exit_code, output = self._exec_with_timeout(container, check_cmd, timeout=10)
+            output_str = output.decode("utf-8") if isinstance(output, bytes) else str(output)
+            console.print(f"[dim][FOUNDRY] Container check: {output_str.strip()}[/dim]")
 
-        output_str = output.decode("utf-8") if isinstance(output, bytes) else str(output)
-        console.print(f"[dim][FOUNDRY] Structure check: {output_str.strip()}[/dim]")
+            if "STRUCTURE_VALID" in output_str:
+                return True
+        except Exception as e:
+            console.print(f"[yellow][FOUNDRY] Container check failed: {e}[/yellow]")
 
-        return exit_code == 0 and "STRUCTURE_VALID" in output_str
+        console.print("[dim][FOUNDRY] INVALID: Need public/index.html OR api/index.js with exports[/dim]")
+        return False
 
     def _create_tar(self, manifest: GantryManifest) -> bytes:
         """Create in-memory tar archive of all files."""
