@@ -288,7 +288,25 @@
             color: var(--text-secondary);
         }
 
-        .refresh-btn:hover { border-color: var(--blue); color: var(--blue); }
+        .projects-header-actions { display: flex; gap: 6px; align-items: center; }
+        .clear-btn {
+            padding: 4px 10px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg);
+            font-size: 10px;
+            font-weight: 500;
+            cursor: pointer;
+            color: var(--text-secondary);
+        }
+        .refresh-btn:hover, .clear-btn:hover { border-color: var(--blue); color: var(--blue); }
+        .clear-btn:hover { border-color: var(--red); color: var(--red); }
+        .retry-btn {
+            background: none; border: none; padding: 0; font-size: inherit;
+            cursor: pointer; color: var(--blue); text-decoration: underline;
+        }
+        .retry-btn:hover { color: var(--blue-hover); }
+        .retry-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
         .projects-list {
             flex: 1;
@@ -584,7 +602,10 @@
                         <span class="projects-count" id="projects-count">(0)</span>
                         <span class="projects-hint" title="Status polling is just server checks; it does not use AI or add model cost.">(no AI cost)</span>
                     </div>
-                    <button class="refresh-btn" id="refresh-btn">Refresh</button>
+                    <div class="projects-header-actions">
+                        <button type="button" class="clear-btn" id="clear-btn" title="Clear all projects and start from scratch">Clear all</button>
+                        <button type="button" class="refresh-btn" id="refresh-btn">Refresh</button>
+                    </div>
                 </div>
                 <div class="projects-list" id="projects-list">
                     <div class="empty-state">
@@ -603,7 +624,7 @@
     </div>
 
     <script>
-        const API = '';
+        const API = (typeof window !== 'undefined' && window.location.protocol !== 'file:') ? '' : 'http://localhost:5050';
         const ITEMS_PER_PAGE = 5;
         let currentPage = 1;
         let allProjects = [];
@@ -890,6 +911,12 @@
                 } else if (status === 'error') {
                     addMsg(`<strong>Error:</strong> ${data.speech || 'Something went wrong. Please try again.'}`);
                     
+                } else if (status === 'STATUS_RESPONSE' && (data.cleared !== undefined || (data.speech && data.speech.includes('Cleared') && data.speech.includes('projects')))) {
+                    addMsg(data.speech || 'Done.');
+                    allProjects = [];
+                    renderProjects();
+                    loadProjects();
+                    
                 } else {
                     // Generic response
                     addMsg(data.speech || 'Processing your request...');
@@ -934,26 +961,63 @@
             }
         }
 
+        function showProjectsLoading() {
+            projectsList.innerHTML = `
+                <div class="empty-state" style="color: var(--text-muted);">
+                    <div class="typing" style="margin: 8px 0;"><span></span><span></span><span></span></div>
+                    <p>Loading projects...</p>
+                </div>
+            `;
+            projectsCount.textContent = '(…)';
+        }
+
+        function showProjectsError(message) {
+            projectsList.innerHTML = `
+                <div class="empty-state" style="color: var(--red);">
+                    <p><strong>${escapeHtml(message)}</strong></p>
+                    <p style="font-size: 10px; color: var(--text-muted); margin-top: 6px;">Check the server is running (e.g. python src/main.py) and open this page from the same host (e.g. http://localhost:5050/).</p>
+                </div>
+            `;
+            projectsCount.textContent = '(?)';
+        }
+
         async function loadProjects() {
+            const cacheOpts = {
+                cache: 'no-store',
+                credentials: 'include',
+                headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache', 'X-Requested-At': String(Date.now()) }
+            };
+            const ts = Date.now();
             try {
-                const response = await fetch(`${API}/gantry/missions`);
-                const data = await response.json();
-                
-                if (data.missions && data.missions.length > 0) {
-                    allProjects = await Promise.all(data.missions.map(async (m) => {
-                        try {
-                            const statusRes = await fetch(`${API}/gantry/status/${m.mission_id}`);
-                            const statusData = await statusRes.json();
-                            return { ...m, speech: statusData.speech, fullPrompt: statusData.prompt || m.prompt };
-                        } catch { return m; }
-                    }));
-                    renderProjects();
-                } else {
+                const response = await fetch((API || '') + '/gantry/missions?_=' + ts, cacheOpts);
+                if (!response.ok) {
                     allProjects = [];
-                    renderProjects();
+                    currentPage = 1;
+                    showProjectsError('Could not load projects (server returned ' + response.status + ').');
+                    console.error('Missions list failed:', response.status);
+                    return;
                 }
+                const data = await response.json();
+                if (!data.missions || data.missions.length === 0) {
+                    allProjects = [];
+                    currentPage = 1;
+                    renderProjects();
+                    return;
+                }
+                allProjects = await Promise.all(data.missions.map(async (m) => {
+                    try {
+                        const statusRes = await fetch((API || '') + '/gantry/status/' + m.mission_id + '?_=' + ts, cacheOpts);
+                        const statusData = await statusRes.ok ? await statusRes.json() : {};
+                        return { ...m, speech: statusData.speech, fullPrompt: statusData.prompt || m.prompt };
+                    } catch { return m; }
+                }));
+                currentPage = 1;
+                renderProjects();
             } catch (err) {
                 console.error('Failed to load projects:', err);
+                allProjects = [];
+                currentPage = 1;
+                showProjectsError('Could not load projects: ' + (err.message || 'network error'));
             }
         }
 
@@ -988,11 +1052,12 @@
                 const desc = (p.fullPrompt || p.prompt).length > 60 ? (p.fullPrompt || p.prompt).substring(0, 60) + '...' : (p.fullPrompt || p.prompt);
                 const repoName = name.toLowerCase().replace(/\s+/g, '-');
                 const githubUrl = `https://github.com/Jarvis2021/${repoName}`;
-                const isFailed = ['FAILED', 'TIMEOUT', 'CRITICAL_FAILURE', 'BLOCKED'].includes(p.status.toUpperCase());
+                const isFailed = ['FAILED', 'TIMEOUT', 'CRITICAL_FAILURE', 'BLOCKED', 'PUBLISH_FAILED'].includes(p.status.toUpperCase());
                 const failReason = isFailed && p.speech ? p.speech.substring(0, 50) + '...' : '';
                 const isLive = ['DEPLOYED', 'SUCCESS', 'PR_OPENED'].includes(p.status.toUpperCase());
                 const showViewLive = isLive && url;
                 const showGitHub = isLive;
+                const showRetry = isFailed;
                 
                 return `
                     <div class="project-card">
@@ -1004,6 +1069,7 @@
                         <div class="project-footer">
                             <span class="status-badge ${statusClass}">${statusText}</span>
                             <div class="project-actions">
+                                ${showRetry ? `<button type="button" class="action-link retry-btn" data-mission-id="${p.mission_id}" title="Retry build from scratch">Retry</button>` : ''}
                                 ${showViewLive ? `<a href="${url}" target="_blank" class="action-link">View Live</a>` : ''}
                                 ${showGitHub ? `<a href="${githubUrl}" target="_blank" class="action-link">GitHub</a>` : ''}
                             </div>
@@ -1011,6 +1077,34 @@
                     </div>
                 `;
             }).join('');
+            
+            // Retry buttons: delegate click
+            projectsList.querySelectorAll('.retry-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const mid = btn.getAttribute('data-mission-id');
+                    if (!mid) return;
+                    btn.disabled = true;
+                    btn.textContent = 'Retrying...';
+                    try {
+                        const res = await fetch(`${API}/gantry/missions/${mid}/retry`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ deploy: true, publish: true })
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.status === 'BUILDING') {
+                            loadProjects();
+                            if (data.mission_id) pollMission(data.mission_id);
+                            addMsg(`<strong>Retrying build.</strong> Watch the Projects panel for progress.`);
+                        } else {
+                            addMsg(`<strong>Retry failed:</strong> ${data.speech || 'Unknown error'}`);
+                        }
+                    } catch (e) {
+                        addMsg(`<strong>Retry failed:</strong> ${e.message}`);
+                    }
+                    loadProjects();
+                });
+            });
             
             if (totalPages > 1) {
                 pagination.style.display = 'flex';
@@ -1028,12 +1122,47 @@
             if (e.key === 'Enter') handleSend();
         });
         
-        refreshBtn.addEventListener('click', () => {
+        if (refreshBtn) refreshBtn.addEventListener('click', function onRefresh() {
+            refreshBtn.disabled = true;
             refreshBtn.textContent = 'Loading...';
-            loadProjects().then(() => {
-                refreshBtn.textContent = 'Refresh';
+            showProjectsLoading();
+            loadProjects().finally(function() {
+                if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.textContent = 'Refresh'; }
             });
         });
+        
+        const clearBtn = document.getElementById('clear-btn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', async function onClear() {
+                if (!confirm('Clear all projects from the database? This cannot be undone. Mission folders on disk are kept for audit.')) return;
+                clearBtn.disabled = true;
+                clearBtn.textContent = 'Clearing...';
+                try {
+                    const res = await fetch((API || '') + '/gantry/missions/clear', {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    const data = await res.json().catch(function() { return {}; });
+                    if (res.ok) {
+                        const n = data.cleared ?? 0;
+                        addMsg('<strong>Cleared ' + n + ' projects from the database.</strong> You can start fresh.');
+                        allProjects = [];
+                        renderProjects();
+                        await loadProjects();
+                    } else if (res.status === 401) {
+                        addMsg('<strong>Please log in to clear projects.</strong>');
+                        loginOverlay.classList.remove('hidden');
+                    } else {
+                        addMsg('<strong>Clear failed:</strong> ' + (data.speech || data.error || 'Unknown error'));
+                    }
+                } catch (e) {
+                    addMsg('<strong>Clear failed:</strong> ' + (e.message || 'network error'));
+                }
+                clearBtn.disabled = false;
+                clearBtn.textContent = 'Clear all';
+            });
+        }
         
         prevBtn.addEventListener('click', () => {
             if (currentPage > 1) { currentPage--; renderProjects(); }
