@@ -1334,7 +1334,9 @@ class Architect:
                     image_data = image_path.read_bytes()
                     image_b64 = base64.b64encode(image_data).decode("utf-8")
                     media_type = f"image/{ext}" if ext != "jpg" else "image/jpeg"
-                    console.print(f"[cyan][ARCHITECT] Loaded design reference: {image_path.name}[/cyan]")
+                    console.print(
+                        f"[cyan][ARCHITECT] Loaded design reference: {image_path.name}[/cyan]"
+                    )
                     return image_b64, media_type
                 except Exception as e:
                     console.print(f"[yellow][ARCHITECT] Failed to load design image: {e}[/yellow]")
@@ -1387,8 +1389,10 @@ class Architect:
             try:
                 # Exponential backoff on retries
                 if attempt > 0:
-                    wait_time = 2 ** attempt  # 2s, 4s, 8s...
-                    console.print(f"[yellow][ARCHITECT] Retry {attempt}/{retry_count} in {wait_time}s...[/yellow]")
+                    wait_time = 2**attempt  # 2s, 4s, 8s...
+                    console.print(
+                        f"[yellow][ARCHITECT] Retry {attempt}/{retry_count} in {wait_time}s...[/yellow]"
+                    )
                     time.sleep(wait_time)
 
                 response = requests.post(url, headers=headers, json=body, timeout=120)
@@ -1441,8 +1445,7 @@ class Architect:
 
         # Check for main HTML file
         has_html = any(
-            f.path.endswith(".html") and "index" in f.path.lower()
-            for f in manifest.files
+            f.path.endswith(".html") and "index" in f.path.lower() for f in manifest.files
         )
         if not has_html and manifest.stack == "node":
             issues.append("Missing index.html (should be public/index.html)")
@@ -1451,19 +1454,21 @@ class Architect:
         for file in manifest.files:
             if "test" in file.path.lower() and file.path.endswith(".js"):
                 content = file.content
-                
+
                 # Check for querySelector (forbidden)
                 if "querySelector" in content and "// FORBIDDEN" not in content:
                     issues.append(f"{file.path}: Uses querySelector (must use getElementById)")
-                
+
                 # Check for eval with querySelector
-                if "eval(" in content and ("querySelector" in content or "script" in content.lower()):
+                if "eval(" in content and (
+                    "querySelector" in content or "script" in content.lower()
+                ):
                     issues.append(f"{file.path}: Uses eval to extract scripts (forbidden)")
-                
+
                 # Check for fs.readFileSync
                 if "readFileSync" in content:
                     issues.append(f"{file.path}: Uses fs.readFileSync (forbidden in tests)")
-                
+
                 # Check for proper mocks
                 if "document.getElementById" in content and "mockElements" not in content:
                     issues.append(f"{file.path}: Uses getElementById but no mockElements defined")
@@ -1598,7 +1603,9 @@ Generate a GantryManifest that replicates this design with 95% accuracy. Include
                 # Pre-validate manifest to catch common issues early
                 is_valid, validation_error = self._pre_validate_manifest(manifest)
                 if not is_valid:
-                    console.print(f"[yellow][ARCHITECT] Pre-validation failed: {validation_error}[/yellow]")
+                    console.print(
+                        f"[yellow][ARCHITECT] Pre-validation failed: {validation_error}[/yellow]"
+                    )
                     # Don't fail - try to fix in next tier or let build self-heal
                     # But log it for visibility
 
@@ -1636,7 +1643,9 @@ Generate a GantryManifest that replicates this design with 95% accuracy. Include
 
         # All tiers failed
         console.print("[red][ARCHITECT] All model tiers exhausted[/red]")
-        raise ArchitectError(f"All {len(tiers_to_try)} model tiers failed. Last error: {last_error}")
+        raise ArchitectError(
+            f"All {len(tiers_to_try)} model tiers failed. Last error: {last_error}"
+        )
 
     def heal_blueprint(self, original_manifest: GantryManifest, error_log: str) -> GantryManifest:
         """
@@ -1666,9 +1675,9 @@ Generate a GantryManifest that replicates this design with 95% accuracy. Include
         healing_request = f"""## FAILED BUILD - NEEDS FIX
 
 ### Error Analysis:
-- Error Type: {error_analysis['type']}
-- Likely Cause: {error_analysis['cause']}
-- Suggested Fix: {error_analysis['fix']}
+- Error Type: {error_analysis["type"]}
+- Likely Cause: {error_analysis["cause"]}
+- Suggested Fix: {error_analysis["fix"]}
 
 ### Original Manifest:
 ```json
@@ -1759,7 +1768,9 @@ Analyze the error and return a CORRECTED GantryManifest that fixes this issue.""
 
         # All tiers failed
         console.print("[red][ARCHITECT] All healing tiers exhausted[/red]")
-        raise ArchitectError(f"All {len(tiers_to_try)} healing tiers failed. Last error: {last_error}")
+        raise ArchitectError(
+            f"All {len(tiers_to_try)} healing tiers failed. Last error: {last_error}"
+        )
 
     def _analyze_error(self, error_log: str) -> dict:
         """
@@ -1772,62 +1783,92 @@ Analyze the error and return a CORRECTED GantryManifest that fixes this issue.""
         # Error patterns mapped to their analysis
         error_patterns = [
             # DOM/Browser errors
-            (lambda e: "queryselector" in e and "not a function" in e, {
-                "type": "DOM_MOCK_ERROR",
-                "cause": "Test uses document.querySelector which is not mocked",
-                "fix": "Replace querySelector with getElementById, add element to mockElements"
-            }),
-            (lambda e: "getelementbyid" in e and ("null" in e or "undefined" in e), {
-                "type": "DOM_MOCK_MISSING",
-                "cause": "Element ID not found in mockElements",
-                "fix": "Add missing element ID to mockElements object in test file"
-            }),
-            (lambda e: "addeventlistener" in e, {
-                "type": "EVENT_LISTENER_ERROR",
-                "cause": "Using addEventListener which is not mocked",
-                "fix": "Replace addEventListener with inline handlers (onclick, onkeypress)"
-            }),
+            (
+                lambda e: "queryselector" in e and "not a function" in e,
+                {
+                    "type": "DOM_MOCK_ERROR",
+                    "cause": "Test uses document.querySelector which is not mocked",
+                    "fix": "Replace querySelector with getElementById, add element to mockElements",
+                },
+            ),
+            (
+                lambda e: "getelementbyid" in e and ("null" in e or "undefined" in e),
+                {
+                    "type": "DOM_MOCK_MISSING",
+                    "cause": "Element ID not found in mockElements",
+                    "fix": "Add missing element ID to mockElements object in test file",
+                },
+            ),
+            (
+                lambda e: "addeventlistener" in e,
+                {
+                    "type": "EVENT_LISTENER_ERROR",
+                    "cause": "Using addEventListener which is not mocked",
+                    "fix": "Replace addEventListener with inline handlers (onclick, onkeypress)",
+                },
+            ),
             # Syntax errors
-            (lambda e: "syntaxerror" in e or "unexpected token" in e, {
-                "type": "SYNTAX_ERROR",
-                "cause": "Invalid JavaScript/Python syntax",
-                "fix": "Check for missing brackets, quotes, semicolons at indicated line"
-            }),
+            (
+                lambda e: "syntaxerror" in e or "unexpected token" in e,
+                {
+                    "type": "SYNTAX_ERROR",
+                    "cause": "Invalid JavaScript/Python syntax",
+                    "fix": "Check for missing brackets, quotes, semicolons at indicated line",
+                },
+            ),
             # Module/Import errors
-            (lambda e: "module not found" in e or "cannot find module" in e, {
-                "type": "MODULE_NOT_FOUND",
-                "cause": "Required module/file doesn't exist",
-                "fix": "Check file paths, ensure all required files are generated"
-            }),
-            (lambda e: "modulenotfounderror" in e or "no module named" in e, {
-                "type": "PYTHON_IMPORT_ERROR",
-                "cause": "Python module not found",
-                "fix": "Check sys.path, ensure module exists, use relative imports"
-            }),
+            (
+                lambda e: "module not found" in e or "cannot find module" in e,
+                {
+                    "type": "MODULE_NOT_FOUND",
+                    "cause": "Required module/file doesn't exist",
+                    "fix": "Check file paths, ensure all required files are generated",
+                },
+            ),
+            (
+                lambda e: "modulenotfounderror" in e or "no module named" in e,
+                {
+                    "type": "PYTHON_IMPORT_ERROR",
+                    "cause": "Python module not found",
+                    "fix": "Check sys.path, ensure module exists, use relative imports",
+                },
+            ),
             # Reference errors
-            (lambda e: "referenceerror" in e or "is not defined" in e, {
-                "type": "REFERENCE_ERROR",
-                "cause": "Variable or function used before definition",
-                "fix": "Ensure functions are defined before use, duplicate from HTML to test"
-            }),
+            (
+                lambda e: "referenceerror" in e or "is not defined" in e,
+                {
+                    "type": "REFERENCE_ERROR",
+                    "cause": "Variable or function used before definition",
+                    "fix": "Ensure functions are defined before use, duplicate from HTML to test",
+                },
+            ),
             # Type errors
-            (lambda e: "typeerror" in e, {
-                "type": "TYPE_ERROR",
-                "cause": "Operation on wrong type (e.g., calling non-function)",
-                "fix": "Check variable types, ensure mocks return correct types"
-            }),
+            (
+                lambda e: "typeerror" in e,
+                {
+                    "type": "TYPE_ERROR",
+                    "cause": "Operation on wrong type (e.g., calling non-function)",
+                    "fix": "Check variable types, ensure mocks return correct types",
+                },
+            ),
             # Assertion failures
-            (lambda e: "assertionerror" in e or "assert" in e, {
-                "type": "TEST_ASSERTION_FAILED",
-                "cause": "Test assertion did not pass",
-                "fix": "Check test logic, ensure state is reset between tests"
-            }),
+            (
+                lambda e: "assertionerror" in e or "assert" in e,
+                {
+                    "type": "TEST_ASSERTION_FAILED",
+                    "cause": "Test assertion did not pass",
+                    "fix": "Check test logic, ensure state is reset between tests",
+                },
+            ),
             # Vercel structure errors
-            (lambda e: "invalid vercel" in e or "structure" in e, {
-                "type": "VERCEL_STRUCTURE_ERROR",
-                "cause": "Invalid Vercel deployment structure",
-                "fix": "Ensure public/index.html exists, vercel.json is correct"
-            }),
+            (
+                lambda e: "invalid vercel" in e or "structure" in e,
+                {
+                    "type": "VERCEL_STRUCTURE_ERROR",
+                    "cause": "Invalid Vercel deployment structure",
+                    "fix": "Ensure public/index.html exists, vercel.json is correct",
+                },
+            ),
         ]
 
         # Find first matching pattern
@@ -1839,7 +1880,7 @@ Analyze the error and return a CORRECTED GantryManifest that fixes this issue.""
         return {
             "type": "UNKNOWN_ERROR",
             "cause": "Unrecognized error pattern",
-            "fix": "Review error log carefully and fix the specific issue"
+            "fix": "Review error log carefully and fix the specific issue",
         }
 
     def _validate_healed_manifest(self, manifest: GantryManifest, error_analysis: dict) -> bool:
@@ -1857,10 +1898,7 @@ Analyze the error and return a CORRECTED GantryManifest that fixes this issue.""
 
         if error_analysis["type"] == "VERCEL_STRUCTURE_ERROR":
             # Ensure public/index.html exists
-            has_index = any(
-                f.path in ("public/index.html", "index.html")
-                for f in manifest.files
-            )
+            has_index = any(f.path in ("public/index.html", "index.html") for f in manifest.files)
             if not has_index:
                 return False
 

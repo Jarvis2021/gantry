@@ -292,17 +292,17 @@ class Foundry:
             for f in manifest.files
         )
         has_api_js = any(
-            f.path.startswith("api/") and f.path.endswith(".js")
-            for f in manifest.files
+            f.path.startswith("api/") and f.path.endswith(".js") for f in manifest.files
         )
         has_api_py = any(
-            f.path.startswith("api/") and f.path.endswith(".py")
-            for f in manifest.files
+            f.path.startswith("api/") and f.path.endswith(".py") for f in manifest.files
         )
         has_vercel_json = any(f.path == "vercel.json" for f in manifest.files)
 
         # Log what we found
-        console.print(f"[dim][FOUNDRY] Structure: static={has_static}, api_js={has_api_js}, api_py={has_api_py}, vercel.json={has_vercel_json}[/dim]")
+        console.print(
+            f"[dim][FOUNDRY] Structure: static={has_static}, api_js={has_api_js}, api_py={has_api_py}, vercel.json={has_vercel_json}[/dim]"
+        )
 
         # Valid if we have static content OR a valid API
         if has_static:
@@ -313,8 +313,19 @@ class Foundry:
         if manifest.stack == StackType.NODE and has_api_js:
             # Check API file has valid exports
             for f in manifest.files:
-                if f.path.startswith("api/") and f.path.endswith(".js") and any(
-                    kw in f.content for kw in ["export default", "module.exports", "exports.", "export function", "export const"]
+                if (
+                    f.path.startswith("api/")
+                    and f.path.endswith(".js")
+                    and any(
+                        kw in f.content
+                        for kw in [
+                            "export default",
+                            "module.exports",
+                            "exports.",
+                            "export function",
+                            "export const",
+                        ]
+                    )
                 ):
                     console.print("[dim][FOUNDRY] API_VALID[/dim]")
                     console.print("[dim][FOUNDRY] STRUCTURE_VALID[/dim]")
@@ -323,8 +334,10 @@ class Foundry:
         if manifest.stack == StackType.PYTHON and has_api_py:
             # Check API file has valid handler
             for f in manifest.files:
-                if f.path.startswith("api/") and f.path.endswith(".py") and any(
-                    kw in f.content for kw in ["class handler", "def handler", "def app"]
+                if (
+                    f.path.startswith("api/")
+                    and f.path.endswith(".py")
+                    and any(kw in f.content for kw in ["class handler", "def handler", "def app"])
                 ):
                     console.print("[dim][FOUNDRY] API_VALID[/dim]")
                     console.print("[dim][FOUNDRY] STRUCTURE_VALID[/dim]")
@@ -346,7 +359,9 @@ class Foundry:
         except Exception as e:
             console.print(f"[yellow][FOUNDRY] Container check failed: {e}[/yellow]")
 
-        console.print("[dim][FOUNDRY] INVALID: Need public/index.html OR api/index.js with exports[/dim]")
+        console.print(
+            "[dim][FOUNDRY] INVALID: Need public/index.html OR api/index.js with exports[/dim]"
+        )
         return False
 
     def _create_tar(self, manifest: GantryManifest) -> bytes:
