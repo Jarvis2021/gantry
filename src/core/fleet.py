@@ -26,6 +26,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
+# For Python 3.11+ compatibility, keep using timezone.utc instead of datetime.UTC
 from rich.console import Console
 
 from src.core.architect import Architect, ArchitectError
@@ -151,10 +152,7 @@ def _is_clear_projects_intent(text: str) -> bool:
         "clear projects",
         "clear missions",
     )
-    for p in phrases:
-        if re.search(p, t):
-            return True
-    return False
+    return any(re.search(p, t) for p in phrases)
 
 
 def _resolve_clear_projects_intent(user_input: str) -> dict | None:
@@ -262,10 +260,7 @@ def _resolve_status_query(user_input: str) -> dict | None:
         return None
 
     hint = _extract_project_hint(user_input)
-    if hint:
-        missions = find_missions_by_prompt_hint(hint, limit=15)
-    else:
-        missions = list_missions(limit=20)
+    missions = find_missions_by_prompt_hint(hint, limit=15) if hint else list_missions(limit=20)
 
     if not missions:
         return {

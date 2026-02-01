@@ -57,6 +57,7 @@ ignore = [
     "RUF001",  # ambiguous unicode (× in HTML templates)
     "RUF013",  # implicit Optional (verbose typing)
     "SIM105",  # contextlib.suppress (try/except is clearer)
+    "UP017",   # Use datetime.UTC (Python 3.11+ only, we need timezone.utc for compatibility)
 ]
 
 # Allow autofix for all enabled rules
