@@ -62,6 +62,10 @@ class MissionRecord(BaseModel):
     - conversation_history: Tracks the back-and-forth with user
     - design_target: Famous app being cloned (LINKEDIN, TWITTER, etc.)
     - pending_question: Question waiting for user response
+
+    Iteration Support:
+    - parent_mission_id: Links to the mission this extends (for iterations)
+    - iteration_number: Which iteration this is (1, 2, 3...)
     """
 
     id: str
@@ -75,6 +79,9 @@ class MissionRecord(BaseModel):
     design_target: str | None = None
     pending_question: str | None = None
     proposed_stack: str | None = None
+    # Iteration Support
+    parent_mission_id: str | None = None
+    iteration_number: int = 1
 
 
 def _get_pool() -> SimpleConnectionPool:
@@ -175,6 +182,8 @@ def init_db() -> None:
             ("design_target", "VARCHAR(100)"),
             ("pending_question", "TEXT"),
             ("proposed_stack", "VARCHAR(50)"),
+            ("parent_mission_id", "UUID REFERENCES missions(id)"),
+            ("iteration_number", "INTEGER DEFAULT 1"),
         ]:
             try:
                 cursor.execute(f"ALTER TABLE missions ADD COLUMN IF NOT EXISTS {column} {col_type}")
@@ -184,29 +193,62 @@ def init_db() -> None:
     console.print(f"[green][DB] Database initialized: {DB_CONFIG['database']}[/green]")
 
 
-def create_mission(prompt: str) -> str:
+def create_mission(prompt: str, parent_mission_id: str | None = None) -> str:
     """
     Create a new mission record.
 
     Args:
         prompt: The user's voice command / build request.
+        parent_mission_id: Optional parent mission ID for iterations.
 
     Returns:
         The generated mission ID (UUID).
     """
     mission_id = str(uuid.uuid4())
+    iteration_number = 1
+
+    # If extending a parent mission, calculate iteration number
+    if parent_mission_id:
+        iteration_number = get_iteration_count(parent_mission_id) + 1
 
     with get_connection() as conn, conn.cursor() as cursor:
         cursor.execute(
             """
-                INSERT INTO missions (id, prompt, status, created_at)
-                VALUES (%s, %s, 'PENDING', CURRENT_TIMESTAMP)
+                INSERT INTO missions (id, prompt, status, created_at, parent_mission_id, iteration_number)
+                VALUES (%s, %s, 'PENDING', CURRENT_TIMESTAMP, %s, %s)
                 """,
-            (mission_id, prompt),
+            (mission_id, prompt, parent_mission_id, iteration_number),
         )
 
-    console.print(f"[cyan][DB] Mission created: {mission_id[:8]}[/cyan]")
+    if parent_mission_id:
+        console.print(
+            f"[cyan][DB] Mission created: {mission_id[:8]} (iteration {iteration_number} of {parent_mission_id[:8]})[/cyan]"
+        )
+    else:
+        console.print(f"[cyan][DB] Mission created: {mission_id[:8]}[/cyan]")
     return mission_id
+
+
+def get_iteration_count(mission_id: str) -> int:
+    """
+    Get the number of iterations for a mission (including itself and children).
+
+    Args:
+        mission_id: The UUID of the parent mission.
+
+    Returns:
+        Number of iterations (1 for no children, 2+ for iterations).
+    """
+    with get_connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*) FROM missions 
+            WHERE id = %s OR parent_mission_id = %s
+            """,
+            (mission_id, mission_id),
+        )
+        result = cursor.fetchone()
+        return result[0] if result else 1
 
 
 def update_mission_status(mission_id: str, status: str, speech: str | None = None) -> None:
@@ -260,6 +302,11 @@ def get_mission(mission_id: str) -> MissionRecord | None:
             design_target=row.get("design_target"),
             pending_question=row.get("pending_question"),
             proposed_stack=row.get("proposed_stack"),
+            # Iteration fields
+            parent_mission_id=str(row["parent_mission_id"])
+            if row.get("parent_mission_id")
+            else None,
+            iteration_number=row.get("iteration_number") or 1,
         )
 
 
@@ -297,6 +344,11 @@ def list_missions(limit: int = 50) -> list[MissionRecord]:
                 design_target=row.get("design_target"),
                 pending_question=row.get("pending_question"),
                 proposed_stack=row.get("proposed_stack"),
+                # Iteration fields
+                parent_mission_id=str(row["parent_mission_id"])
+                if row.get("parent_mission_id")
+                else None,
+                iteration_number=row.get("iteration_number") or 1,
             )
             for row in rows
         ]
@@ -673,3 +725,75 @@ def mark_ready_to_build(mission_id: str) -> None:
         )
 
     console.print(f"[green][DB] Ready to build: {mission_id[:8]}[/green]")
+
+
+def get_mission_manifest(mission_id: str) -> dict | None:
+    """
+    Get the manifest.json for a mission from the missions folder.
+
+    Args:
+        mission_id: The UUID of the mission.
+
+    Returns:
+        The manifest as a dict, or None if not found.
+    """
+    import json
+    from pathlib import Path
+
+    missions_dir = Path(__file__).parent.parent.parent / "missions"
+    manifest_path = missions_dir / mission_id / "manifest.json"
+
+    if not manifest_path.exists():
+        console.print(f"[yellow][DB] No manifest found for {mission_id[:8]}[/yellow]")
+        return None
+
+    try:
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        console.print(f"[cyan][DB] Loaded manifest for {mission_id[:8]}[/cyan]")
+        return manifest
+    except (json.JSONDecodeError, OSError) as e:
+        console.print(f"[red][DB] Failed to load manifest: {e}[/red]")
+        return None
+
+
+def get_mission_children(parent_id: str) -> list[MissionRecord]:
+    """
+    Get all child iterations of a mission.
+
+    Args:
+        parent_id: The UUID of the parent mission.
+
+    Returns:
+        List of child MissionRecord objects.
+    """
+    with get_connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
+        cursor.execute(
+            """
+            SELECT * FROM missions 
+            WHERE parent_mission_id = %s
+            ORDER BY iteration_number ASC
+            """,
+            (parent_id,),
+        )
+        rows = cursor.fetchall()
+
+        return [
+            MissionRecord(
+                id=str(row["id"]),
+                prompt=row["prompt"],
+                status=row["status"],
+                speech_output=row["speech_output"],
+                created_at=row["created_at"].isoformat() if row["created_at"] else None,
+                updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
+                conversation_history=row.get("conversation_history") or [],
+                design_target=row.get("design_target"),
+                pending_question=row.get("pending_question"),
+                proposed_stack=row.get("proposed_stack"),
+                parent_mission_id=str(row["parent_mission_id"])
+                if row.get("parent_mission_id")
+                else None,
+                iteration_number=row.get("iteration_number") or 1,
+            )
+            for row in rows
+        ]

@@ -1131,6 +1131,7 @@
                 const showViewLive = isLive && url;
                 const showGitHub = isLive;
                 const showRetry = isFailed;
+                const showExtend = isLive; // Show "Extend" for deployed projects
                 
                 return `
                     <div class="project-card">
@@ -1143,6 +1144,7 @@
                             <span class="status-badge ${statusClass}">${statusText}</span>
                             <div class="project-actions">
                                 ${showRetry ? `<button type="button" class="action-link retry-btn" data-mission-id="${p.mission_id}" title="Retry build from scratch">Retry</button>` : ''}
+                                ${showExtend ? `<button type="button" class="action-link extend-btn" data-mission-id="${p.mission_id}" data-project-name="${escapeHtml(name)}" title="Add features to this project">Extend</button>` : ''}
                                 ${showViewLive ? `<a href="${url}" target="_blank" class="action-link">View Live</a>` : ''}
                                 ${showGitHub ? `<a href="${githubUrl}" target="_blank" class="action-link">GitHub</a>` : ''}
                             </div>
@@ -1176,6 +1178,45 @@
                         addMsg(`<strong>Retry failed:</strong> ${e.message}`);
                     }
                     loadProjects();
+                });
+            });
+            
+            // Extend buttons: delegate click
+            projectsList.querySelectorAll('.extend-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const mid = btn.getAttribute('data-mission-id');
+                    const projectName = btn.getAttribute('data-project-name') || 'this project';
+                    if (!mid) return;
+                    
+                    // Prompt user for new features
+                    const features = prompt(`What features would you like to add to "${projectName}"?\n\nExamples:\n• Add a dashboard with charts\n• Add user authentication\n• Add dark mode toggle`);
+                    
+                    if (!features || !features.trim()) return;
+                    
+                    btn.disabled = true;
+                    btn.textContent = 'Extending...';
+                    
+                    try {
+                        const res = await fetch(`${API}/gantry/missions/${mid}/extend`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ features: features.trim(), deploy: true, publish: true })
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.status === 'BUILDING') {
+                            loadProjects();
+                            if (data.mission_id) pollMission(data.mission_id);
+                            addMsg(`<strong>Extending ${projectName}!</strong><br>Adding: ${escapeHtml(features)}<br><br>Watch the Projects panel for progress.`);
+                        } else {
+                            addMsg(`<strong>Extend failed:</strong> ${data.detail || data.speech || 'Unknown error'}`);
+                            btn.disabled = false;
+                            btn.textContent = 'Extend';
+                        }
+                    } catch (e) {
+                        addMsg(`<strong>Extend failed:</strong> ${e.message}`);
+                        btn.disabled = false;
+                        btn.textContent = 'Extend';
+                    }
                 });
             });
             

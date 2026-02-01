@@ -30,6 +30,7 @@
 
 import asyncio
 import base64
+import json
 import os
 import re
 import time
@@ -614,6 +615,108 @@ class FleetManager:
             "status": "BUILDING",
             "speech": "Retrying build. Watch for progress.",
             "mission_id": mission_id,
+        }
+
+    async def extend_mission(
+        self,
+        parent_mission_id: str,
+        additional_features: str,
+        deploy: bool = True,
+        publish: bool = True,
+    ) -> dict:
+        """
+        Extend an existing deployed mission with new features.
+
+        Creates a new iteration linked to the parent mission, using the
+        parent's manifest as context for the AI Architect.
+
+        Args:
+            parent_mission_id: The UUID of the mission to extend.
+            additional_features: What to add (e.g., "add a dashboard with charts").
+            deploy: Whether to deploy the extended version.
+            publish: Whether to open a PR.
+
+        Returns:
+            dict with status, speech, mission_id (the new iteration's ID).
+        """
+        from src.core.db import create_mission, get_mission_manifest
+
+        # Validate parent mission exists and is deployed
+        parent = get_mission(parent_mission_id)
+        if not parent:
+            return {
+                "status": "error",
+                "speech": "Parent mission not found.",
+                "parent_mission_id": parent_mission_id,
+            }
+
+        if parent.status != "DEPLOYED":
+            return {
+                "status": "error",
+                "speech": f"Can only extend deployed projects. This one is {parent.status}.",
+                "parent_mission_id": parent_mission_id,
+            }
+
+        # Get the parent's manifest for context
+        parent_manifest = get_mission_manifest(parent_mission_id)
+        if not parent_manifest:
+            return {
+                "status": "error",
+                "speech": "Could not load parent project files. Try rebuilding first.",
+                "parent_mission_id": parent_mission_id,
+            }
+
+        # Build the extended prompt with full context
+        project_name = parent_manifest.get("project_name", "project")
+        existing_files = [f.get("path", "") for f in parent_manifest.get("files", [])]
+
+        extended_prompt = f"""EXTEND EXISTING PROJECT: {project_name}
+
+ORIGINAL REQUEST: {parent.prompt}
+
+EXISTING FILES: {", ".join(existing_files)}
+
+EXISTING CODE CONTEXT:
+```json
+{json.dumps(parent_manifest, indent=2)[:3000]}
+```
+
+NEW FEATURES TO ADD: {additional_features}
+
+IMPORTANT: 
+- Keep all existing functionality
+- Add the new features to the existing codebase
+- Update tests to cover new features
+- Maintain the same project structure and stack"""
+
+        # Create new mission linked to parent
+        new_mission_id = create_mission(extended_prompt, parent_mission_id=parent_mission_id)
+        iteration_number = parent.iteration_number + 1 if hasattr(parent, "iteration_number") else 2
+
+        await self._update_status(
+            new_mission_id,
+            "ARCHITECTING",
+            f"Extending {project_name} (iteration {iteration_number}).",
+        )
+
+        # Run the build asynchronously
+        task = asyncio.create_task(
+            self._run_mission_with_target(
+                new_mission_id,
+                extended_prompt,
+                parent.design_target,
+                deploy,
+                publish,
+            )
+        )
+        task.add_done_callback(lambda _: None)
+
+        return {
+            "status": "BUILDING",
+            "speech": f"Extending {project_name} with new features. This is iteration {iteration_number}.",
+            "mission_id": new_mission_id,
+            "parent_mission_id": parent_mission_id,
+            "iteration_number": iteration_number,
         }
 
     def search_missions_by_keywords(self, keywords: list[str], limit: int = 5) -> list:
