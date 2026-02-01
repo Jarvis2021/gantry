@@ -202,9 +202,10 @@ flowchart TB
 
 ### ✅ Production Ready
 
-**Watch the Demo:**
+**Watch the Demo:** [Download Demo Video](assets/Demo.mov)
 
-https://github.com/Jarvis2021/gantry/assets/Demo.mov
+<!-- To embed video: Upload Demo.mov to a GitHub Issue/Discussion, then paste the generated URL here -->
+<!-- Example: https://github.com/user-attachments/assets/your-video-id -->
 
 - AI Architect Consultation with iteration planning
 - Self-healing builds (3 retry attempts)
