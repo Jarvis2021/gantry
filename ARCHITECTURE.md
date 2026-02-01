@@ -610,11 +610,11 @@ For high-scale production deployments, GantryFleet supports a 3-layer hybrid arc
 
 **Deployment Options:**
 
-| Scale | Architecture | Estimated Cost |
-|-------|--------------|----------------|
-| **Startup** | Single Docker Compose | $0-6/mo |
-| **Growth** | Vercel + Railway + VPS | $25-50/mo |
-| **Enterprise** | Vercel + AWS/GCP + Kubernetes | $100-500/mo |
+| Scale | Architecture |
+|-------|--------------|
+| **Startup** | Single Docker Compose |
+| **Growth** | Vercel + Railway + VPS |
+| **Enterprise** | Vercel + AWS/GCP + Kubernetes |
 
 **Why This Architecture:**
 - **Vercel** excels at frontend (CDN, edge functions, zero-config)

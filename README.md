@@ -335,8 +335,6 @@ Licensed under **Apache License 2.0**—the same license used by Kubernetes, Ter
 
 - ✅ Free for personal and commercial use
 - ✅ Safe for enterprise adoption
-- ✅ Patent rights granted
-- ✅ Trademark protected
 
 See [LICENSE](./LICENSE) for details.
 
