@@ -758,6 +758,10 @@ class FleetManager:
 
                 except (AuditFailedError, DeploymentError) as e:
                     error_log = str(e) if isinstance(e, DeploymentError) else e.output
+                    console.print(
+                        f"[yellow][Mission {mission_id[:8]}] Build failed (attempt {attempt}): "
+                        f"{error_log[:200]}...[/yellow]"
+                    )
 
                     if attempt < MAX_RETRIES:
                         await self._update_status(
@@ -766,11 +770,27 @@ class FleetManager:
                         try:
                             # Capture variables by value
                             m, err = current_manifest, error_log
-                            current_manifest = await asyncio.get_event_loop().run_in_executor(
+                            healed = await asyncio.get_event_loop().run_in_executor(
                                 None, lambda m=m, err=err: architect.heal_blueprint(m, err)
                             )
-                        except ArchitectError:
-                            pass
+                            # Only update if healing succeeded and produced different code
+                            if healed and healed != current_manifest:
+                                console.print(
+                                    f"[green][Mission {mission_id[:8]}] Healing produced new manifest[/green]"
+                                )
+                                current_manifest = healed
+                            else:
+                                console.print(
+                                    f"[yellow][Mission {mission_id[:8]}] Healing returned same code, "
+                                    f"will retry with different approach[/yellow]"
+                                )
+                        except ArchitectError as heal_err:
+                            console.print(
+                                f"[red][Mission {mission_id[:8]}] Healing failed: {heal_err}[/red]"
+                            )
+                            # Don't silently pass - log that healing failed
+                            # The next attempt will still try with current_manifest
+                            # but at least we know healing isn't working
 
                 except BuildTimeoutError:
                     raise

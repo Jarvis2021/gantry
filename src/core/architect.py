@@ -61,19 +61,19 @@ BEDROCK_ENDPOINT = f"https://bedrock-runtime.{BEDROCK_REGION}.amazonaws.com"
 
 MODEL_TIERS = [
     {
-        "name": "Claude 4 Opus",
-        "id": "anthropic.claude-sonnet-4-20250514-v1:0",  # Using Sonnet 4 as Opus may not be available
-        "max_tokens": 8192,
-        "description": "Most capable model for complex applications",
-    },
-    {
-        "name": "Claude 4 Sonnet",
+        "name": "Claude Sonnet 4",
         "id": "anthropic.claude-sonnet-4-20250514-v1:0",
         "max_tokens": 8192,
-        "description": "Balanced performance for most applications",
+        "description": "Latest model - best for complex applications",
     },
     {
-        "name": "Claude 3.5 Sonnet",
+        "name": "Claude 3.5 Sonnet V2",
+        "id": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "max_tokens": 8192,
+        "description": "Updated 3.5 Sonnet - excellent reliability",
+    },
+    {
+        "name": "Claude 3.5 Sonnet V1",
         "id": "anthropic.claude-3-5-sonnet-20240620-v1:0",
         "max_tokens": 4096,
         "description": "Battle-tested production model",
@@ -1158,12 +1158,16 @@ The previous build FAILED. Your job is to analyze and FIX it.
 - Tests run in Node.js, cannot extract from browser
 - Define functions BEFORE calling them in tests
 
-**TEST_FUNCTION_STUB_ERROR (assertion fails because function doesn't modify state):**
-- THIS IS THE #1 FAILURE CAUSE
+**TEST_FUNCTION_STUB_ERROR / EMPTY_STUB_ERROR (assertion fails because function doesn't modify state):**
+- THIS IS THE #1 FAILURE CAUSE - AUTOMATIC BUILD REJECTION IF DETECTED
 - NEVER create empty function stubs in tests
 - WRONG: function searchWeather() { /* would update DOM */ }
+- WRONG: function calculate() { // TODO implement }
+- WRONG: function addItem() { }
 - RIGHT: function searchWeather() { weatherInfo.style.display = 'block'; weatherInfo.innerHTML = '...'; }
+- RIGHT: function calculate() { const a = parseFloat(input1.value); result.textContent = a + b; }
 - If the test asserts something, the function MUST actually do it!
+- COPY THE FULL IMPLEMENTATION from the HTML &lt;script&gt; tag into the test file
 
 **SYNTAX_ERROR:**
 - Check the EXACT line number in error
@@ -1902,13 +1906,22 @@ Analyze the error and return a CORRECTED GantryManifest that fixes this issue.""
                     "fix": "Check variable types, ensure mocks return correct types",
                 },
             ),
-            # Assertion failures
+            # Assertion failures - check if it's a stub issue
+            (
+                lambda e: ("assertionerror" in e or "assert" in e)
+                and ("display" in e or "innerhtml" in e or "textcontent" in e),
+                {
+                    "type": "EMPTY_STUB_ERROR",
+                    "cause": "Test function is an empty stub that doesn't modify DOM",
+                    "fix": "Function MUST have FULL implementation - copy exact code from HTML script",
+                },
+            ),
             (
                 lambda e: "assertionerror" in e or "assert" in e,
                 {
                     "type": "TEST_ASSERTION_FAILED",
                     "cause": "Test assertion did not pass",
-                    "fix": "Check test logic, ensure state is reset between tests",
+                    "fix": "Ensure functions actually modify state/DOM, not empty stubs",
                 },
             ),
             # Vercel structure errors
@@ -1945,16 +1958,58 @@ Analyze the error and return a CORRECTED GantryManifest that fixes this issue.""
             # Ensure no querySelector in test files
             for file in manifest.files:
                 if "test" in file.path.lower() and "querySelector" in file.content:
+                    console.print(
+                        "[yellow][ARCHITECT] Healed manifest still has querySelector[/yellow]"
+                    )
                     return False
 
         if error_analysis["type"] == "VERCEL_STRUCTURE_ERROR":
             # Ensure public/index.html exists
             has_index = any(f.path in ("public/index.html", "index.html") for f in manifest.files)
             if not has_index:
+                console.print("[yellow][ARCHITECT] Healed manifest missing index.html[/yellow]")
                 return False
 
+        # CRITICAL: Detect empty function stubs in test files
+        # This is the #1 cause of test failures!
+        empty_stub_patterns = [
+            "/* would",
+            "// would",
+            "/* TODO",
+            "// TODO",
+            "{ }",
+            "{}",
+            "pass  #",
+            "pass #",
+        ]
+        for file in manifest.files:
+            if "test" in file.path.lower():
+                content = file.content
+                # Check for suspicious empty function bodies
+                for pattern in empty_stub_patterns:
+                    if pattern in content:
+                        console.print(
+                            f"[yellow][ARCHITECT] Warning: Test file may have empty stub ({pattern})[/yellow]"
+                        )
+                        # Don't fail, just warn - sometimes these are in comments
+
+                # More aggressive check: function with only comment inside
+                import re
+
+                empty_func_pattern = (
+                    r"function\s+\w+\s*\([^)]*\)\s*\{\s*(//[^\n]*|/\*[^*]*\*/)\s*\}"
+                )
+                if re.search(empty_func_pattern, content):
+                    console.print(
+                        "[red][ARCHITECT] CRITICAL: Test has empty function stub with only comment![/red]"
+                    )
+                    return False
+
         # Basic validation - ensure tests file exists
-        return any("test" in f.path.lower() for f in manifest.files)
+        has_tests = any("test" in f.path.lower() for f in manifest.files)
+        if not has_tests:
+            console.print("[yellow][ARCHITECT] Healed manifest missing test file[/yellow]")
+        return has_tests
 
     def consult(self, messages: list[dict]) -> dict:
         """
