@@ -866,9 +866,29 @@ if __name__ == "__main__":
 - NEVER connect to real databases - use mock data
 - NEVER import the main app if it has side effects on import
 
-**CRITICAL: Functions MUST be DUPLICATED in test files**
+**CRITICAL: Functions MUST be FULLY DUPLICATED in test files**
 Tests run in a clean environment. You CANNOT extract functions from HTML or other files.
-COPY the function definitions directly into your test file.
+
+WRONG - Empty stub (WILL FAIL):
+```javascript
+function searchWeather() {
+  // This would normally update DOM - WRONG! Test will fail!
+}
+```
+
+RIGHT - Full implementation copied:
+```javascript
+function searchWeather() {
+  const cityInput = document.getElementById('city-input');
+  const weatherInfo = document.getElementById('weather-info');
+  // ... FULL logic here, exactly as in HTML ...
+  weatherInfo.style.display = 'block';
+  weatherInfo.innerHTML = `<div>${cityName}</div>`;
+}
+```
+
+RULE: If a function modifies DOM or state, you MUST copy the FULL implementation.
+Never use stubs or comments like "would normally update DOM".
 
 === DOM MOCKING (CRITICAL - JAVASCRIPT ONLY) ===
 
