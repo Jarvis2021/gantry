@@ -17,7 +17,6 @@ from dataclasses import dataclass, field
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
-from pydantic import BaseModel
 from rich.console import Console
 
 console = Console()
@@ -138,8 +137,7 @@ async def get_current_user(token: str = "") -> str:
 
 def invalidate_session(token: str) -> None:
     """Invalidate a session token."""
-    if token in _sessions:
-        del _sessions[token]
+    _sessions.pop(token, None)
 
 
 # =============================================================================

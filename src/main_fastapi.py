@@ -15,7 +15,6 @@
 import asyncio
 import os
 import sys
-import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -30,7 +29,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from rich.console import Console
@@ -99,7 +98,7 @@ user_limiter = TokenBucket(rate=10, capacity=30)  # 10 req/sec, burst 30
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """Startup and shutdown events."""
     # Startup
     print_banner()
@@ -264,7 +263,7 @@ async def auth_status(request: Request):
 async def chat(
     request: ChatRequest,
     _ip: Annotated[None, Depends(rate_limit_ip)],
-    user_id: Annotated[str, Depends(get_current_user)],
+    _user_id: Annotated[str, Depends(get_current_user)],
 ):
     """Chat with the AI Architect."""
     # Check guardrails
@@ -298,7 +297,7 @@ async def chat(
 async def architect(
     request: BuildRequest,
     _ip: Annotated[None, Depends(rate_limit_ip)],
-    user_id: Annotated[str, Depends(get_current_user)],
+    _user_id: Annotated[str, Depends(get_current_user)],
     wait: bool = False,
 ):
     """Dispatch a build mission."""

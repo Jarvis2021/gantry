@@ -103,10 +103,12 @@ class FleetManager:
             f"(deploy={deploy}, publish={publish})[/cyan]"
         )
 
-        # Spawn async task
-        asyncio.create_task(
+        # Spawn async task (stored to prevent garbage collection)
+        task = asyncio.create_task(
             self._run_mission(mission_id, prompt, deploy, publish)
         )
+        # Store reference to prevent GC
+        task.add_done_callback(lambda _: None)
 
         return mission_id
 

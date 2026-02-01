@@ -210,6 +210,58 @@
         .send-btn:hover { background: var(--blue-hover); }
         .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+        /* Image Upload */
+        .upload-btn {
+            padding: 8px 10px;
+            background: var(--bg-alt);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .upload-btn:hover { background: var(--bg-hover); }
+        .upload-btn svg { width: 16px; height: 16px; fill: var(--text-secondary); }
+        .upload-input { display: none; }
+        
+        .image-preview {
+            margin-top: 8px;
+            padding: 8px;
+            background: var(--bg-alt);
+            border-radius: 6px;
+            display: none;
+        }
+        .image-preview.active { display: flex; align-items: center; gap: 10px; }
+        .image-preview img {
+            max-width: 80px;
+            max-height: 60px;
+            border-radius: 4px;
+            object-fit: cover;
+        }
+        .image-preview .image-name {
+            flex: 1;
+            font-size: 11px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .image-preview .remove-image {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            color: var(--red);
+            font-size: 14px;
+        }
+        
+        .msg-image {
+            margin-top: 8px;
+            max-width: 200px;
+            border-radius: 8px;
+        }
+
         /* Projects Panel is defined above with chat panel for equal widths */
 
         .projects-header {
@@ -507,8 +559,17 @@
                 </div>
                 <div class="chat-input">
                     <div class="input-row">
+                        <label class="upload-btn" title="Upload mockup or screenshot">
+                            <input type="file" class="upload-input" id="image-input" accept="image/*">
+                            <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+                        </label>
                         <input type="text" class="input-field" id="prompt-input" placeholder="Describe what you want to build..." autocomplete="off">
                         <button class="send-btn" id="send-btn">Send</button>
+                    </div>
+                    <div class="image-preview" id="image-preview">
+                        <img id="preview-img" src="" alt="Preview">
+                        <span class="image-name" id="image-name"></span>
+                        <button class="remove-image" id="remove-image" title="Remove image">x</button>
                     </div>
                 </div>
             </div>
@@ -545,6 +606,7 @@
         let conversationHistory = [];
         let buildPrompt = '';
         let isAuthenticated = false;
+        let pendingImage = null;  // For image upload support
 
         // Login elements
         const loginOverlay = document.getElementById('loginOverlay');
@@ -685,16 +747,66 @@
             if (indicator) indicator.remove();
         }
 
+        // Image upload handling
+        const imageInput = document.getElementById('image-input');
+        const imagePreview = document.getElementById('image-preview');
+        const previewImg = document.getElementById('preview-img');
+        const imageName = document.getElementById('image-name');
+        const removeImageBtn = document.getElementById('remove-image');
+
+        imageInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    pendingImage = {
+                        name: file.name,
+                        data: event.target.result,
+                        type: file.type
+                    };
+                    previewImg.src = event.target.result;
+                    imageName.textContent = file.name;
+                    imagePreview.classList.add('active');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        removeImageBtn.addEventListener('click', function() {
+            pendingImage = null;
+            imageInput.value = '';
+            imagePreview.classList.remove('active');
+        });
+
+        function clearPendingImage() {
+            pendingImage = null;
+            imageInput.value = '';
+            imagePreview.classList.remove('active');
+        }
+
         async function handleSend() {
             const input = promptInput.value.trim();
-            if (!input) return;
+            if (!input && !pendingImage) return;
 
-            addMsg(escapeHtml(input), true);
+            // Build message content
+            let messageContent = input;
+            let displayContent = escapeHtml(input);
+            
+            // If there's an image, add it to the display and content
+            if (pendingImage) {
+                displayContent += `<br><img class="msg-image" src="${pendingImage.data}" alt="Uploaded mockup">`;
+                messageContent += `\n\n[User uploaded image: ${pendingImage.name}]`;
+                // Note: In production, you'd send the image to a vision API
+                // For now, we include a note about the image
+            }
+
+            addMsg(displayContent, true);
             promptInput.value = '';
+            clearPendingImage();
             sendBtn.disabled = true;
 
             // Add to conversation history
-            conversationHistory.push({ role: 'user', content: input });
+            conversationHistory.push({ role: 'user', content: messageContent });
 
             // Store for potential build
             if (conversationHistory.length === 1) {

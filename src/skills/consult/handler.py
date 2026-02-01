@@ -8,7 +8,6 @@ import json
 from pathlib import Path
 
 import requests
-from pydantic import BaseModel
 
 from src.skills import SkillResult
 
