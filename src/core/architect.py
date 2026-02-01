@@ -775,6 +775,45 @@ EVERY app MUST include tests with 90% coverage:
 2. Use simple assertions (no external test framework needed for Vercel)
 3. **CRITICAL: Use STATEFUL mocks** - same object must be returned for same ID
 
+=== FORBIDDEN TEST PATTERNS (WILL CAUSE BUILD FAILURE) ===
+
+NEVER DO ANY OF THESE - they will cause immediate test failure:
+
+1. **NEVER use document.querySelector** - only getElementById is mocked
+2. **NEVER use eval() to extract scripts from HTML** - tests run in Node.js, not browser
+3. **NEVER try to read HTML file content in tests** - no fs, no require('./index.html')
+4. **NEVER use addEventListener in HTML** - use inline handlers (onclick, onkeypress)
+
+**CRITICAL: Functions MUST be DUPLICATED in test files**
+Tests run in Node.js without a browser. You CANNOT extract functions from HTML.
+Instead, COPY the function definitions directly into your test file.
+
+**BAD (will fail):**
+```javascript
+// WRONG - document.querySelector doesn't exist in Node.js!
+eval(document.querySelector('script').textContent);
+
+// WRONG - can't read HTML files in Node.js tests!
+const html = require('fs').readFileSync('./public/index.html');
+```
+
+**CORRECT - duplicate functions in test file:**
+```javascript
+// Copy the function definitions directly into test file
+let items = [];
+function addItem() {
+  const input = document.getElementById('input');
+  if (input.value.trim()) {
+    items.push({ id: Date.now(), text: input.value });
+    input.value = '';
+  }
+}
+// Now test it
+mockElements['input'].value = 'Test';
+addItem();
+assert(items.length === 1, 'addItem should add to array');
+```
+
 === DOM MOCKING (CRITICAL - MUST FOLLOW) ===
 
 When testing browser code that uses document.getElementById, you MUST use STATEFUL mocks.
@@ -814,12 +853,12 @@ global.localStorage = {
 === COMPLETE TEST FILE TEMPLATE ===
 
 CRITICAL TEST RULES:
-1. **SET input BEFORE calling functions** that read from inputs
-2. **RESET state before each test** - clear arrays, reset mock values
-3. **Test pure logic FIRST** (arrays, objects) before DOM-dependent code
-4. **Functions that clear inputs** - you MUST set input.value BEFORE calling again
-5. **NEVER use eval() to execute HTML scripts** - define functions directly in tests
-6. **NEVER use addEventListener in HTML** - use inline handlers like onclick, onkeypress
+1. **DUPLICATE all functions from HTML into test file** - cannot extract from HTML
+2. **SET input BEFORE calling functions** that read from inputs
+3. **RESET state before each test** - clear arrays, reset mock values
+4. **Test pure logic FIRST** (arrays, objects) before DOM-dependent code
+5. **Functions that clear inputs** - you MUST set input.value BEFORE calling again
+6. **ONLY use getElementById** - querySelector, querySelectorAll are NOT mocked
 7. **HTML inline event syntax:** `<input onkeypress="if(event.key==='Enter')myFunc()">`
 
 ```javascript
@@ -841,31 +880,63 @@ global.localStorage = {
   clear() { this._data = {}; }
 };
 
+// === DUPLICATE FUNCTIONS FROM HTML (MANDATORY) ===
+// Copy the EXACT functions from your HTML <script> tag here
+// Tests run in Node.js - you CANNOT extract from HTML!
+
+let items = [];
+
+function addItem() {
+  const input = document.getElementById('input');
+  if (input.value.trim()) {
+    items.push({ id: Date.now(), text: input.value.trim() });
+    input.value = '';
+    renderList();
+  }
+}
+
+function renderList() {
+  const list = document.getElementById('list');
+  list.innerHTML = items.map(i => '<div>' + i.text + '</div>').join('');
+}
+
 // === HELPER: Reset state between tests ===
 function resetState() {
+  items = [];
   mockElements['input'].value = '';
+  mockElements['list'].innerHTML = '';
   localStorage.clear();
 }
 
 // === TESTS ===
 
 // Test 1: Pure array operations (no DOM needed)
-let items = [];
+resetState();
 items.push({ id: 1, text: 'Test' });
 assert(items.length === 1, 'Add to array failed');
 items = items.filter(i => i.id !== 1);
 assert(items.length === 0, 'Filter array failed');
 
-// Test 2: localStorage
+// Test 2: addItem function
+resetState();
+mockElements['input'].value = 'Test Item';  // SET INPUT BEFORE calling
+addItem();
+assert(items.length === 1, 'addItem should add item');
+assert(items[0].text === 'Test Item', 'Item text should match');
+assert(mockElements['input'].value === '', 'Input should be cleared');
+
+// Test 3: renderList function
+resetState();
+items = [{ id: 1, text: 'First' }, { id: 2, text: 'Second' }];
+renderList();
+assert(mockElements['list'].innerHTML.includes('First'), 'List should contain First');
+assert(mockElements['list'].innerHTML.includes('Second'), 'List should contain Second');
+
+// Test 4: localStorage
 resetState();
 localStorage.setItem('data', JSON.stringify([{id: 1}]));
 const saved = JSON.parse(localStorage.getItem('data'));
 assert(saved.length === 1, 'localStorage roundtrip failed');
-
-// Test 3: DOM mock verification  
-resetState();
-mockElements['input'].value = 'Test Value';  // SET BEFORE reading
-assert(document.getElementById('input').value === 'Test Value', 'DOM mock failed');
 
 console.log('All tests passed!');
 ```
