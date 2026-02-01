@@ -457,7 +457,7 @@ def delete_mission(mission_id: str) -> bool:
         True if mission was deleted, False if not found
     """
     with get_connection() as conn, conn.cursor() as cursor:
-        cursor.execute("DELETE FROM missions WHERE mission_id = %s", (mission_id,))
+        cursor.execute("DELETE FROM missions WHERE id = %s", (mission_id,))
         deleted = cursor.rowcount > 0
     if deleted:
         console.print(f"[cyan][DB] Deleted mission {mission_id}[/cyan]")
