@@ -697,8 +697,61 @@ class FleetManager:
                 await self._finalize_mission(mission_id, result.deploy_url, pr_url)
 
             except ArchitectError as e:
+                error_str = str(e).lower()
                 console.print(f"[red][Mission {mission_id[:8]}] Architect failed: {e}[/red]")
-                await self._update_status(mission_id, "FAILED", "Blueprint generation failed.")
+
+                # Detect copyright/trademark issues and provide conversational guidance
+                trademark_indicators = [
+                    "copyright",
+                    "trademark",
+                    "brand",
+                    "cannot create",
+                    "cannot generate",
+                    "proprietary",
+                    "intellectual property",
+                    "unable to replicate",
+                    "cannot replicate",
+                    "clone",
+                    "cannot clone",
+                ]
+                brand_names = [
+                    "tesla",
+                    "apple",
+                    "google",
+                    "microsoft",
+                    "amazon",
+                    "meta",
+                    "facebook",
+                    "twitter",
+                    "netflix",
+                    "spotify",
+                    "airbnb",
+                    "uber",
+                    "linkedin",
+                    "instagram",
+                ]
+
+                is_trademark_issue = any(ind in error_str for ind in trademark_indicators)
+                mentioned_brand = next((b for b in brand_names if b in prompt.lower()), None)
+
+                if is_trademark_issue or mentioned_brand:
+                    # Conversational response suggesting alternatives
+                    if mentioned_brand:
+                        suggestion = (
+                            f"I can't directly clone {mentioned_brand.title()}'s website due to "
+                            f"copyright protection. Try rephrasing like: 'Build a {mentioned_brand.title()}-inspired "
+                            f"landing page' or 'Build a modern electric car company website with dark theme'. "
+                            f"What would you like me to build instead?"
+                        )
+                    else:
+                        suggestion = (
+                            "I can't directly clone trademarked websites. Try describing the style you want "
+                            "instead of naming a specific brand. For example: 'Build a modern SaaS landing page "
+                            "with dark theme and gradient accents'. What would you like me to build?"
+                        )
+                    await self._update_status(mission_id, "AWAITING_INPUT", suggestion)
+                else:
+                    await self._update_status(mission_id, "FAILED", "Blueprint generation failed.")
 
             except BuildTimeoutError:
                 await self._update_status(mission_id, "TIMEOUT", "Mission timeout exceeded.")
