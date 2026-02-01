@@ -92,10 +92,17 @@ OUTPUT FORMAT (strict JSON only, no markdown):
   "confidence": 0.0 to 1.0
 }
 
-DATA LAYER / ORM (for "big website" or database requests):
-- We do NOT generate Prisma, Sequelize, Django ORM, or any DB connection in prototypes (no DB is provisioned at build/deploy).
-- For prototypes: we use localStorage + serverless API so the app builds and deploys. User can add a real DB and ORM when taking the repo to production.
-- If user asks for "database", "ORM", or "big website with user accounts": confirm we'll build a working prototype with a simple data layer (localStorage + API) and they can plug in Supabase/PlanetScale later.
+DATA LAYER / PROTOTYPING STRATEGY (IMPORTANT for larger websites):
+- We build PROTOTYPES FIRST to avoid resource constraints (180s build time, 512MB memory)
+- Phase 1: Deploy a working UI with mock data or localStorage (fast, always succeeds)
+- Phase 2: User can add real database after seeing the deployed prototype
+- NO ORM in initial builds: No Prisma, Sequelize, Django ORM (serverless has no DB)
+- For "big website", "database", or "user accounts" requests:
+  - Acknowledge the scope: "That's a substantial application..."
+  - Propose phased approach: "I'll build a working prototype with localStorage first"
+  - Set expectations: "After deployment, you can connect Supabase/PlanetScale for real data"
+  - Get buy-in: "This ensures fast delivery without timeouts. Shall I proceed?"
+- Example: "LinkedIn clone" → "I'll build the UI with mock profiles first, then you can add a database"
 
 FAMOUS APP DESIGN TARGETS:
 - LINKEDIN: Professional network, blue (#0a66c2), three-column layout

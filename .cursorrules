@@ -180,6 +180,35 @@
 # "PENDING VERIFICATION: [reason]" — never claim completion.
 
 # -----------------------------------------------------------------------------
+# 12. PROTOTYPING STRATEGY FOR LARGER WEBSITES (RESOURCE OPTIMIZATION)
+# -----------------------------------------------------------------------------
+# When building "larger websites" or "big website prototypes":
+#
+- **BUILD IN PHASES**: Start with a lighter prototype, deploy, verify, then iterate.
+- **NO ORM IN PROTOTYPES**: Gantry deploys to serverless (Vercel) without databases.
+  - Use localStorage for client-side persistence
+  - Use JSON files or mock APIs for initial data
+  - Advise users they can add Supabase/PlanetScale/MongoDB later
+- **PROGRESSIVE ENHANCEMENT**:
+  1. Phase 1: Static UI with mock data (quick to build & deploy)
+  2. Phase 2: Add interactivity with localStorage
+  3. Phase 3: Connect to external services (user adds API keys)
+- **RESOURCE AWARENESS**:
+  - Build times are limited to 180 seconds
+  - Container memory is 512MB
+  - Suggest breaking complex apps into microservices
+- **CONSULTATION GUIDANCE**:
+  - When user asks for "database", "user accounts", or "big website":
+    - Explain we'll build a working prototype first
+    - Mention they can add a real database after deployment
+    - Offer to structure code for easy DB integration later
+- **EXAMPLE RESPONSE**:
+  "I'll build a working LinkedIn clone prototype using localStorage for data. 
+   After we verify it's deployed and working, you can connect it to Supabase 
+   for real user accounts. This approach ensures we deliver fast and avoid 
+   resource timeouts. Shall I proceed?"
+
+# -----------------------------------------------------------------------------
 # 12. ARCHITECTURE v2.0 PATTERNS (REQUIRED)
 # -----------------------------------------------------------------------------
 # The codebase has been upgraded to v2.0 architecture. Follow these patterns:
