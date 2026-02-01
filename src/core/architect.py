@@ -61,19 +61,19 @@ BEDROCK_ENDPOINT = f"https://bedrock-runtime.{BEDROCK_REGION}.amazonaws.com"
 
 MODEL_TIERS = [
     {
-        "name": "Claude 4 Opus",
-        "id": "anthropic.claude-sonnet-4-20250514-v1:0",  # Using Sonnet 4 as Opus may not be available
-        "max_tokens": 8192,
-        "description": "Most capable model for complex applications",
-    },
-    {
-        "name": "Claude 4 Sonnet",
+        "name": "Claude Sonnet 4",
         "id": "anthropic.claude-sonnet-4-20250514-v1:0",
         "max_tokens": 8192,
-        "description": "Balanced performance for most applications",
+        "description": "Latest model - best for complex applications",
     },
     {
-        "name": "Claude 3.5 Sonnet",
+        "name": "Claude 3.5 Sonnet V2",
+        "id": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "max_tokens": 8192,
+        "description": "Updated 3.5 Sonnet - excellent reliability",
+    },
+    {
+        "name": "Claude 3.5 Sonnet V1",
         "id": "anthropic.claude-3-5-sonnet-20240620-v1:0",
         "max_tokens": 4096,
         "description": "Battle-tested production model",
@@ -866,9 +866,29 @@ if __name__ == "__main__":
 - NEVER connect to real databases - use mock data
 - NEVER import the main app if it has side effects on import
 
-**CRITICAL: Functions MUST be DUPLICATED in test files**
+**CRITICAL: Functions MUST be FULLY DUPLICATED in test files**
 Tests run in a clean environment. You CANNOT extract functions from HTML or other files.
-COPY the function definitions directly into your test file.
+
+WRONG - Empty stub (WILL FAIL):
+```javascript
+function searchWeather() {
+  // This would normally update DOM - WRONG! Test will fail!
+}
+```
+
+RIGHT - Full implementation copied:
+```javascript
+function searchWeather() {
+  const cityInput = document.getElementById('city-input');
+  const weatherInfo = document.getElementById('weather-info');
+  // ... FULL logic here, exactly as in HTML ...
+  weatherInfo.style.display = 'block';
+  weatherInfo.innerHTML = `<div>${cityName}</div>`;
+}
+```
+
+RULE: If a function modifies DOM or state, you MUST copy the FULL implementation.
+Never use stubs or comments like "would normally update DOM".
 
 === DOM MOCKING (CRITICAL - JAVASCRIPT ONLY) ===
 
@@ -1138,6 +1158,17 @@ The previous build FAILED. Your job is to analyze and FIX it.
 - Tests run in Node.js, cannot extract from browser
 - Define functions BEFORE calling them in tests
 
+**TEST_FUNCTION_STUB_ERROR / EMPTY_STUB_ERROR (assertion fails because function doesn't modify state):**
+- THIS IS THE #1 FAILURE CAUSE - AUTOMATIC BUILD REJECTION IF DETECTED
+- NEVER create empty function stubs in tests
+- WRONG: function searchWeather() { /* would update DOM */ }
+- WRONG: function calculate() { // TODO implement }
+- WRONG: function addItem() { }
+- RIGHT: function searchWeather() { weatherInfo.style.display = 'block'; weatherInfo.innerHTML = '...'; }
+- RIGHT: function calculate() { const a = parseFloat(input1.value); result.textContent = a + b; }
+- If the test asserts something, the function MUST actually do it!
+- COPY THE FULL IMPLEMENTATION from the HTML &lt;script&gt; tag into the test file
+
 **SYNTAX_ERROR:**
 - Check the EXACT line number in error
 - Look for: missing brackets, quotes, semicolons, trailing commas
@@ -1180,11 +1211,23 @@ global.localStorage = {
   clear() { this._data = {}; }
 };
 
-// DUPLICATE ALL FUNCTIONS FROM HTML HERE
-let state = [];
-function myFunction() {
-  // Copy EXACT code from HTML <script>
+// DUPLICATE ALL FUNCTIONS FROM HTML HERE - FULL IMPLEMENTATION!
+// WRONG: function search() { /* would update display */ }  <-- NEVER DO THIS
+// RIGHT: Copy the EXACT implementation that modifies DOM/state
+
+let items = [];
+function addItem() {
+  const input = document.getElementById('input');
+  if (input.value.trim()) {
+    items.push(input.value.trim());  // Actually modify state
+    input.value = '';
+    render();
+  }
 }
+function render() {
+  document.getElementById('list').innerHTML = items.map(i => `<li>${i}</li>`).join('');
+}
+// If HTML has searchWeather(), copy the FULL implementation that sets display='block'
 
 // RESET before each test
 function resetState() {
@@ -1481,6 +1524,18 @@ class Architect:
                 if "document.getElementById" in content and "mockElements" not in content:
                     issues.append(f"{file.path}: Uses getElementById but no mockElements defined")
 
+                # CRITICAL: Check for empty function stubs (the #1 cause of failures)
+                import re
+
+                empty_func_pattern = (
+                    r"function\s+\w+\s*\([^)]*\)\s*\{\s*(//[^\n]*|/\*[^*]*\*/)\s*\}"
+                )
+                if re.search(empty_func_pattern, content):
+                    issues.append(
+                        f"{file.path}: Contains empty function stub with only comment - "
+                        "functions MUST have full implementation"
+                    )
+
         # Check for vercel.json in node projects
         if manifest.stack == "node":
             has_vercel = any(f.path == "vercel.json" for f in manifest.files)
@@ -1700,10 +1755,14 @@ Generate a GantryManifest that replicates this design with 95% accuracy. Include
 CRITICAL REQUIREMENTS FOR FIX:
 1. Fix the SPECIFIC error shown above
 2. Return ALL files (not just changed ones)
-3. Ensure tests pass - duplicate functions in test file, use stateful mocks
+3. TESTS MUST PASS - this is usually why builds fail:
+   - Functions in test file must have FULL implementation (not empty stubs)
+   - If test asserts "display === 'block'", the function MUST set display to 'block'
+   - NEVER write empty stubs like: function foo() followed by a comment
+   - ALWAYS write the full implementation that modifies the DOM/state
 4. If DOM error: only use getElementById (NOT querySelector)
 5. If import error: check file paths and module format
-6. If syntax error: fix at the exact line indicated
+6. If assertion error: the function being tested isn't actually doing what the test expects
 
 Analyze the error and return a CORRECTED GantryManifest that fixes this issue."""
 
@@ -1859,13 +1918,22 @@ Analyze the error and return a CORRECTED GantryManifest that fixes this issue.""
                     "fix": "Check variable types, ensure mocks return correct types",
                 },
             ),
-            # Assertion failures
+            # Assertion failures - check if it's a stub issue
+            (
+                lambda e: ("assertionerror" in e or "assert" in e)
+                and ("display" in e or "innerhtml" in e or "textcontent" in e),
+                {
+                    "type": "EMPTY_STUB_ERROR",
+                    "cause": "Test function is an empty stub that doesn't modify DOM",
+                    "fix": "Function MUST have FULL implementation - copy exact code from HTML script",
+                },
+            ),
             (
                 lambda e: "assertionerror" in e or "assert" in e,
                 {
                     "type": "TEST_ASSERTION_FAILED",
                     "cause": "Test assertion did not pass",
-                    "fix": "Check test logic, ensure state is reset between tests",
+                    "fix": "Ensure functions actually modify state/DOM, not empty stubs",
                 },
             ),
             # Vercel structure errors
@@ -1902,16 +1970,58 @@ Analyze the error and return a CORRECTED GantryManifest that fixes this issue.""
             # Ensure no querySelector in test files
             for file in manifest.files:
                 if "test" in file.path.lower() and "querySelector" in file.content:
+                    console.print(
+                        "[yellow][ARCHITECT] Healed manifest still has querySelector[/yellow]"
+                    )
                     return False
 
         if error_analysis["type"] == "VERCEL_STRUCTURE_ERROR":
             # Ensure public/index.html exists
             has_index = any(f.path in ("public/index.html", "index.html") for f in manifest.files)
             if not has_index:
+                console.print("[yellow][ARCHITECT] Healed manifest missing index.html[/yellow]")
                 return False
 
+        # CRITICAL: Detect empty function stubs in test files
+        # This is the #1 cause of test failures!
+        empty_stub_patterns = [
+            "/* would",
+            "// would",
+            "/* TODO",
+            "// TODO",
+            "{ }",
+            "{}",
+            "pass  #",
+            "pass #",
+        ]
+        for file in manifest.files:
+            if "test" in file.path.lower():
+                content = file.content
+                # Check for suspicious empty function bodies
+                for pattern in empty_stub_patterns:
+                    if pattern in content:
+                        console.print(
+                            f"[yellow][ARCHITECT] Warning: Test file may have empty stub ({pattern})[/yellow]"
+                        )
+                        # Don't fail, just warn - sometimes these are in comments
+
+                # More aggressive check: function with only comment inside
+                import re
+
+                empty_func_pattern = (
+                    r"function\s+\w+\s*\([^)]*\)\s*\{\s*(//[^\n]*|/\*[^*]*\*/)\s*\}"
+                )
+                if re.search(empty_func_pattern, content):
+                    console.print(
+                        "[red][ARCHITECT] CRITICAL: Test has empty function stub with only comment![/red]"
+                    )
+                    return False
+
         # Basic validation - ensure tests file exists
-        return any("test" in f.path.lower() for f in manifest.files)
+        has_tests = any("test" in f.path.lower() for f in manifest.files)
+        if not has_tests:
+            console.print("[yellow][ARCHITECT] Healed manifest missing test file[/yellow]")
+        return has_tests
 
     def consult(self, messages: list[dict]) -> dict:
         """

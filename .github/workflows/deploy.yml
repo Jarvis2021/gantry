@@ -1,0 +1,162 @@
+# =============================================================================
+# GANTRY DEPLOY WORKFLOW
+# =============================================================================
+# Manual deployment to production server via SSH.
+#
+# Trigger: Manual (workflow_dispatch) from GitHub Actions UI
+#
+# Required Secrets:
+#   - DEPLOY_HOST: Production server hostname/IP
+#   - DEPLOY_USER: SSH username
+#   - DEPLOY_KEY: SSH private key (base64 encoded)
+#   - DEPLOY_PATH: Path to gantry on server (e.g., /home/user/gantry)
+#
+# To set up:
+#   1. Generate SSH key: ssh-keygen -t ed25519 -f gantry-deploy
+#   2. Add public key to server: ~/.ssh/authorized_keys
+#   3. Base64 encode private key: base64 -i gantry-deploy | tr -d '\n'
+#   4. Add secrets in GitHub: Settings > Secrets > Actions
+# =============================================================================
+
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+      skip_build:
+        description: 'Skip Docker build (faster, uses cached images)'
+        required: false
+        default: false
+        type: boolean
+
+# Only allow one deployment at a time
+concurrency:
+  group: deploy-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate secrets are configured
+        run: |
+          if [ -z "${{ secrets.DEPLOY_HOST }}" ]; then
+            echo "::error::DEPLOY_HOST secret is not configured"
+            echo ""
+            echo "To configure deployment, add these secrets in GitHub:"
+            echo "  Settings > Secrets and variables > Actions > New repository secret"
+            echo ""
+            echo "Required secrets:"
+            echo "  - DEPLOY_HOST: Your server hostname or IP"
+            echo "  - DEPLOY_USER: SSH username (e.g., ubuntu, root)"
+            echo "  - DEPLOY_KEY: Base64-encoded SSH private key"
+            echo "  - DEPLOY_PATH: Path to gantry on server"
+            exit 1
+          fi
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_KEY }}" | base64 -d > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy to server
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          SKIP_BUILD: ${{ github.event.inputs.skip_build }}
+        run: |
+          echo "🚀 Deploying to ${{ github.event.inputs.environment }}..."
+          echo "   Host: $DEPLOY_HOST"
+          echo "   Path: $DEPLOY_PATH"
+          echo "   Skip build: $SKIP_BUILD"
+          echo ""
+          
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${DEPLOY_USER}@${DEPLOY_HOST} << 'ENDSSH'
+          
+          set -e
+          cd ${{ secrets.DEPLOY_PATH }}
+          
+          echo "📥 Pulling latest code..."
+          git fetch origin
+          git checkout develop
+          git pull origin develop
+          
+          echo "🐳 Updating containers..."
+          if [ "${{ github.event.inputs.skip_build }}" = "true" ]; then
+            docker-compose pull
+            docker-compose up -d
+          else
+            docker-compose down
+            docker-compose build --no-cache
+            docker-compose up -d
+          fi
+          
+          echo "⏳ Waiting for services to be healthy..."
+          sleep 10
+          
+          echo "✅ Checking service status..."
+          docker-compose ps
+          
+          echo ""
+          echo "🎉 Deployment complete!"
+          ENDSSH
+
+      - name: Verify deployment
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          echo "🔍 Verifying deployment..."
+          
+          # Wait a bit for services to fully start
+          sleep 5
+          
+          # Health check (adjust URL as needed)
+          HEALTH_URL="https://gantryfleet.ai/health"
+          
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i: Checking $HEALTH_URL"
+            if curl -sf "$HEALTH_URL" > /dev/null 2>&1; then
+              echo "✅ Health check passed!"
+              exit 0
+            fi
+            sleep 5
+          done
+          
+          echo "⚠️ Health check failed, but deployment may still be successful"
+          echo "Please verify manually at https://gantryfleet.ai"
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Skip build | ${{ github.event.inputs.skip_build }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Clean up
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key

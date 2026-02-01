@@ -726,6 +726,51 @@ async def retry_mission(
     return result
 
 
+class ExtendRequest(BaseModel):
+    """Request to extend an existing mission with new features."""
+
+    features: str = Field(..., description="New features to add to the project")
+    deploy: bool = Field(True, description="Deploy the extended version")
+    publish: bool = Field(True, description="Open a PR for the extended version")
+
+
+@app.post("/gantry/missions/{mission_id}/extend")
+async def extend_mission(
+    mission_id: str,
+    request: ExtendRequest,
+    _ip: Annotated[None, Depends(rate_limit_ip)] = None,
+    _user_id: Annotated[str, Depends(get_current_user)] = None,
+):
+    """
+    Extend an existing deployed project with new features.
+
+    This creates a new iteration linked to the parent mission, using the
+    existing code as context for the AI Architect.
+
+    Example:
+        POST /gantry/missions/abc123/extend
+        {"features": "Add a dashboard with expense charts and category breakdown"}
+    """
+    fleet = get_fleet()
+    result = await fleet.extend_mission(
+        parent_mission_id=mission_id,
+        additional_features=request.features,
+        deploy=request.deploy,
+        publish=request.publish,
+    )
+
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("speech"))
+
+    return {
+        "status": result.get("status"),
+        "speech": result.get("speech"),
+        "mission_id": result.get("mission_id"),
+        "parent_mission_id": mission_id,
+        "iteration_number": result.get("iteration_number"),
+    }
+
+
 @app.get("/gantry/missions/{mission_id}/failure")
 async def get_mission_failure(
     mission_id: str,

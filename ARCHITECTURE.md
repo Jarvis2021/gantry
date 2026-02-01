@@ -16,6 +16,82 @@ GantryFleet is a **production-grade AI software factory** that transforms natura
 
 ---
 
+## The "Goldilocks" Architecture: Why We Chose Docker
+
+To understand why GantryFleet is **safer for Enterprise**, you have to look at how the current giants handle code execution:
+
+### The Three Approaches
+
+| Platform | Approach | How It Works | Trade-offs |
+|----------|----------|--------------|------------|
+| **Claude** | Remote Sandbox | Code runs on Anthropic's cloud servers in a remote sandbox | Safe, but disconnected from your local database, private keys, and network configuration |
+| **Cursor** | Local Host | Runs directly on your bare metal laptop. Asks permission to run terminal commands as you | Full access, but if the AI hallucinates a destructive command, it happens to your actual machine |
+| **GantryFleet** | Local Containerization | Builds inside Docker containers on your infrastructure | Best of both worlds: safety + integration |
+
+GantryFleet takes the **third path**: Local Containerization.
+
+### 1. Security vs. "The Rogue Agent"
+
+Unlike Cursor, which requires you to trust the AI with your file system, GantryFleet operates in a **Zero-Trust environment**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  YOUR LAPTOP (Host Machine)                                 │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  GantryFleet Container (Orchestrator)                 │  │
+│  │  ┌─────────────────────────────────────────────────┐  │  │
+│  │  │  Project Pod (Ephemeral)                        │  │  │
+│  │  │  ┌─────────────────────────────────────────┐    │  │  │
+│  │  │  │  AI-Generated Code Runs HERE            │    │  │  │
+│  │  │  │  - 512MB RAM limit                      │    │  │  │
+│  │  │  │  - 180s timeout (Dead Man's Switch)     │    │  │  │
+│  │  │  │  - No access to host filesystem         │    │  │  │
+│  │  │  │  - Destroyed after build completes      │    │  │  │
+│  │  │  └─────────────────────────────────────────┘    │  │  │
+│  │  └─────────────────────────────────────────────────┘  │  │
+│  └───────────────────────────────────────────────────────┘  │
+│  Your files, keys, configs remain UNTOUCHED ✓               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+- Every task spins up a **fresh, isolated Docker container**
+- The Agent has "Root" access only inside that **disposable box**
+- If the AI makes a mistake or tries to delete a system file, it destroys a temporary container that didn't exist 5 minutes ago
+- **Your laptop remains untouched**
+
+### 2. Integration vs. "The Cloud Wall"
+
+Unlike Claude, which is stuck in the cloud, GantryFleet **runs on your network**:
+
+| Capability | Claude (Cloud) | GantryFleet (Local Docker) |
+|------------|----------------|----------------------------|
+| Local Postgres database | ❌ | ✅ |
+| Internal staging servers | ❌ | ✅ |
+| Private package registry | ❌ | ✅ |
+| Corporate VPN resources | ❌ | ✅ |
+| Air-gapped environments | ❌ | ✅ |
+
+**Enterprise Win:** You get the safety of a sandbox without losing access to your internal tools.
+
+### 3. The "Works on My Machine" Guarantee
+
+Enterprises love Docker because it **enforces consistency**:
+
+```
+Developer A's Laptop          GantryFleet           Your CI/CD
+    (messy)                   (clean)              (production)
+        │                         │                      │
+        │    "Tests passed"       │    Same Docker       │
+        │◄────────────────────────│    Image             │
+        │                         │◄─────────────────────│
+        │                         │    "Tests passed"    │
+        │                         │                      │
+```
+
+GantryFleet doesn't just hand you code; it hands you a **verified Docker image**. If GantryFleet says "The tests passed," it means they passed in a clean, standard environment—not just on a developer's messy laptop. This makes the handoff to CI/CD trivial.
+
+---
+
 ## Architecture Overview
 
 | Aspect | Current | Description |
