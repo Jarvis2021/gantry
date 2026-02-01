@@ -222,7 +222,8 @@
             justify-content: center;
         }
         .upload-btn:hover { background: var(--bg-hover); }
-        .upload-btn svg { width: 16px; height: 16px; fill: var(--text-secondary); }
+        .upload-btn svg { width: 16px; height: 16px; fill: var(--text-secondary); flex-shrink: 0; }
+        .upload-label { font-size: 11px; color: var(--text-secondary); margin-left: 4px; }
         .upload-input { display: none; }
         
         .image-preview {
@@ -397,6 +398,7 @@
         .empty-state svg { width: 32px; height: 32px; fill: var(--text-muted); margin-bottom: 8px; }
         .empty-state h3 { font-size: 11px; font-weight: 600; margin-bottom: 3px; color: var(--text-secondary); }
         .empty-state p { font-size: 10px; }
+        .projects-hint { font-size: 9px; color: var(--text-muted); margin-left: 4px; }
 
         /* Spinner */
         .spinner {
@@ -559,11 +561,12 @@
                 </div>
                 <div class="chat-input">
                     <div class="input-row">
-                        <label class="upload-btn" title="Upload mockup or screenshot">
+                        <label class="upload-btn" title="Attach image (mockup, screenshot, or design)" aria-label="Attach image">
                             <input type="file" class="upload-input" id="image-input" accept="image/*">
                             <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+                            <span class="upload-label">Image</span>
                         </label>
-                        <input type="text" class="input-field" id="prompt-input" placeholder="Describe what you want to build..." autocomplete="off">
+                        <input type="text" class="input-field" id="prompt-input" placeholder="Describe what you want to build... (optional: attach a mockup above)" autocomplete="off">
                         <button class="send-btn" id="send-btn">Send</button>
                     </div>
                     <div class="image-preview" id="image-preview">
@@ -579,6 +582,7 @@
                     <div>
                         <span class="projects-title">Projects</span>
                         <span class="projects-count" id="projects-count">(0)</span>
+                        <span class="projects-hint" title="Status polling is just server checks; it does not use AI or add model cost.">(no AI cost)</span>
                     </div>
                     <button class="refresh-btn" id="refresh-btn">Refresh</button>
                 </div>
@@ -702,7 +706,8 @@
         function getStatusClass(status) {
             const s = status.toUpperCase();
             if (['DEPLOYED', 'SUCCESS', 'PR_OPENED'].includes(s)) return 'live';
-            if (['BUILDING', 'ARCHITECTING', 'VALIDATING', 'PUBLISHING', 'HEALING', 'PENDING'].includes(s)) return 'building';
+            if (['BUILDING', 'ARCHITECTING', 'VALIDATING', 'PUBLISHING', 'HEALING', 'PENDING', 'READY_TO_BUILD'].includes(s)) return 'building';
+            if (['CONSULTING', 'AWAITING_INPUT'].includes(s)) return 'queued';  // V6.5
             if (['FAILED', 'TIMEOUT', 'CRITICAL_FAILURE', 'BLOCKED'].includes(s)) return 'failed';
             return 'queued';
         }
@@ -711,7 +716,8 @@
             const map = {
                 'DEPLOYED': 'Live', 'SUCCESS': 'Done', 'PR_OPENED': 'PR Opened',
                 'BUILDING': 'Building...', 'ARCHITECTING': 'Designing...', 'VALIDATING': 'Testing...',
-                'PUBLISHING': 'Publishing...', 'HEALING': 'Fixing...', 'PENDING': 'Queued',
+                'PUBLISHING': 'Publishing...', 'HEALING': 'Improving...', 'PENDING': 'Queued',
+                'READY_TO_BUILD': 'Ready', 'CONSULTING': 'Consulting...', 'AWAITING_INPUT': 'Waiting...',
                 'FAILED': 'Failed', 'TIMEOUT': 'Timeout', 'CRITICAL_FAILURE': 'Error', 'BLOCKED': 'Blocked'
             };
             return map[status.toUpperCase()] || status;
@@ -784,20 +790,21 @@
             imagePreview.classList.remove('active');
         }
 
+        // V6.5: Track current consultation mission
+        let currentMissionId = null;
+
         async function handleSend() {
             const input = promptInput.value.trim();
             if (!input && !pendingImage) return;
 
-            // Build message content
+            // Build message content and payload (capture image before clearing)
             let messageContent = input;
             let displayContent = escapeHtml(input);
-            
-            // If there's an image, add it to the display and content
-            if (pendingImage) {
-                displayContent += `<br><img class="msg-image" src="${pendingImage.data}" alt="Uploaded mockup">`;
-                messageContent += `\n\n[User uploaded image: ${pendingImage.name}]`;
-                // Note: In production, you'd send the image to a vision API
-                // For now, we include a note about the image
+            const imageToSend = pendingImage;
+
+            if (imageToSend) {
+                displayContent += `<br><img class="msg-image" src="${imageToSend.data}" alt="Uploaded mockup">`;
+                messageContent += `\n\n[User uploaded image: ${imageToSend.name}]`;
             }
 
             addMsg(displayContent, true);
@@ -805,21 +812,19 @@
             clearPendingImage();
             sendBtn.disabled = true;
 
-            // Add to conversation history
-            conversationHistory.push({ role: 'user', content: messageContent });
-
-            // Store for potential build
-            if (conversationHistory.length === 1) {
-                buildPrompt = input;
-            }
-
             addTypingIndicator();
 
             try {
-                const response = await fetch(`${API}/gantry/chat`, {
+                // V6.5: Use the new /gantry/voice endpoint (image saved to mission folder and included in repo)
+                const payload = { message: messageContent };
+                if (imageToSend) {
+                    payload.image_base64 = imageToSend.data;
+                    payload.image_filename = imageToSend.name;
+                }
+                const response = await fetch(`${API}/gantry/voice`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ messages: conversationHistory })
+                    body: JSON.stringify(payload)
                 });
 
                 removeTypingIndicator();
@@ -838,44 +843,58 @@
                     return;
                 }
 
-                if (data.ready_to_build) {
-                    // User confirmed - start building
-                    addMsg(`<strong>Starting build!</strong><br><br>Creating ${data.app_name || 'your app'}... Watch the Projects panel for progress.`);
+                // V6.5: Handle consultation loop responses
+                const status = data.status;
+                
+                if (status === 'BUILDING') {
+                    // User confirmed - build started
+                    currentMissionId = data.mission_id;
                     
-                    // Reset conversation
-                    const finalPrompt = buildPrompt || conversationHistory[0]?.content || input;
-                    conversationHistory = [];
-                    buildPrompt = '';
-
-                    // Trigger actual build
-                    const buildResponse = await fetch(`${API}/gantry/architect`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ voice_memo: finalPrompt })
-                    });
-
-                    const buildData = await buildResponse.json();
-                    if (buildResponse.ok && buildData.mission_id) {
-                        loadProjects();
-                        pollMission(buildData.mission_id);
+                    let buildMsg = `<strong>Clone Protocol Initiated!</strong><br><br>`;
+                    if (data.design_target) {
+                        buildMsg += `Replicating <strong>${data.design_target}</strong> interface...<br>`;
                     }
-                } else {
-                    // Continue conversation - extract only the response text
-                    let responseText = 'I understand. Could you tell me more?';
+                    buildMsg += `Watch the Projects panel for progress.`;
+                    addMsg(buildMsg);
                     
-                    if (typeof data === 'object' && data.response) {
-                        responseText = data.response;
-                    } else if (typeof data === 'string') {
-                        // Try to parse if it's a string
-                        try {
-                            const parsed = JSON.parse(data);
-                            responseText = parsed.response || data;
-                        } catch { responseText = data; }
+                    loadProjects();
+                    if (data.mission_id) {
+                        pollMission(data.mission_id);
                     }
                     
-                    conversationHistory.push({ role: 'assistant', content: responseText });
+                } else if (status === 'AWAITING_INPUT') {
+                    // V6.5: CTO is asking a question
+                    currentMissionId = data.mission_id;
+                    
+                    let responseText = data.speech || data.question || 'Could you tell me more?';
+                    
+                    // Show features if provided
+                    if (data.features && data.features.length > 0) {
+                        responseText += `<br><br><strong>Proposed Features:</strong><br>`;
+                        responseText += data.features.map(f => `• ${escapeHtml(f)}`).join('<br>');
+                    }
+                    
+                    // Show design target if detected
+                    if (data.design_target) {
+                        responseText += `<br><br><em>Design Target: ${data.design_target}</em>`;
+                    }
+                    
+                    // Show confidence
+                    if (data.confidence && data.confidence > 0) {
+                        const pct = Math.round(data.confidence * 100);
+                        responseText += `<br><span style="color: var(--text-muted); font-size: 10px;">Confidence: ${pct}%</span>`;
+                    }
+                    
                     addMsg(responseText.replace(/\n/g, '<br>'));
+                    
+                } else if (status === 'error') {
+                    addMsg(`<strong>Error:</strong> ${data.speech || 'Something went wrong. Please try again.'}`);
+                    
+                } else {
+                    // Generic response
+                    addMsg(data.speech || 'Processing your request...');
                 }
+                
             } catch (err) {
                 removeTypingIndicator();
                 addMsg(`<strong>Connection error.</strong> Please try again.`);
@@ -971,6 +990,9 @@
                 const githubUrl = `https://github.com/Jarvis2021/${repoName}`;
                 const isFailed = ['FAILED', 'TIMEOUT', 'CRITICAL_FAILURE', 'BLOCKED'].includes(p.status.toUpperCase());
                 const failReason = isFailed && p.speech ? p.speech.substring(0, 50) + '...' : '';
+                const isLive = ['DEPLOYED', 'SUCCESS', 'PR_OPENED'].includes(p.status.toUpperCase());
+                const showViewLive = isLive && url;
+                const showGitHub = isLive;
                 
                 return `
                     <div class="project-card">
@@ -982,8 +1004,8 @@
                         <div class="project-footer">
                             <span class="status-badge ${statusClass}">${statusText}</span>
                             <div class="project-actions">
-                                ${url ? `<a href="${url}" target="_blank" class="action-link">View Live</a>` : ''}
-                                <a href="${githubUrl}" target="_blank" class="action-link">GitHub</a>
+                                ${showViewLive ? `<a href="${url}" target="_blank" class="action-link">View Live</a>` : ''}
+                                ${showGitHub ? `<a href="${githubUrl}" target="_blank" class="action-link">GitHub</a>` : ''}
                             </div>
                         </div>
                     </div>

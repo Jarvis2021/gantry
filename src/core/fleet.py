@@ -1,8 +1,12 @@
 # -----------------------------------------------------------------------------
-# THE FLEET MANAGER - ORCHESTRATOR (Self-Healing)
+# THE FLEET MANAGER - ORCHESTRATOR (Self-Healing + V6.5 Consultation Loop)
 # -----------------------------------------------------------------------------
 # Responsibility: Orchestrates the complete mission pipeline with self-repair.
-# Connects: Database -> Architect -> Policy -> Foundry -> [Heal Loop] -> Deploy
+# Connects: Database -> Consultant -> Architect -> Policy -> Foundry -> Deploy
+#
+# V6.5 UPGRADE: The Consultation Loop
+# Old Flow: Voice -> Build
+# New Flow: Voice -> CTO Proposal -> User Feedback -> Final Spec -> "Proceed" -> Build
 #
 # Self-Healing: When a build/deploy fails, the Architect analyzes the error and
 # generates a fixed manifest. This loop repeats up to MAX_RETRIES times.
@@ -15,20 +19,79 @@
 # - GANTRY_SKIP_PUBLISH=true: Skip GitHub publishing (for tests/CI)
 # -----------------------------------------------------------------------------
 
+import base64
 import os
+import re
 import threading
 import time
 
 from rich.console import Console
 
 from src.core.architect import Architect, ArchitectError
-from src.core.db import create_mission, init_db, update_mission_status
+from src.core.consultant import Consultant, ConsultantResponse
+from src.core.db import (
+    append_to_conversation,
+    clear_pending_question,
+    create_consultation,
+    create_mission,
+    get_active_consultation,
+    get_mission,
+    init_db,
+    mark_ready_to_build,
+    set_design_target,
+    set_pending_question,
+    update_mission_status,
+)
 from src.core.deployer import DeploymentError
 from src.core.foundry import MISSIONS_DIR, AuditFailedError, BuildTimeoutError, Foundry
 from src.core.policy import PolicyGate, SecurityViolation
 from src.core.publisher import Publisher, PublishError, SecurityBlock
 
 console = Console()
+
+# Design reference image filename in mission folder and in built repo
+DESIGN_REFERENCE_NAME = "design-reference"
+
+
+def _save_design_image(mission_id: str, image_base64: str, image_filename: str) -> str | None:
+    """
+    Save uploaded design image to mission folder so it can be included in the built repo.
+
+    Args:
+        mission_id: Mission/consultation ID.
+        image_base64: Base64-encoded image (with or without data URL prefix).
+        image_filename: Original filename (e.g. mockup.png).
+
+    Returns:
+        Path to saved file relative to mission folder, or None on failure.
+    """
+    if not image_base64 or not image_filename:
+        return None
+    try:
+        # Strip data URL prefix if present (e.g. data:image/png;base64,)
+        raw = image_base64.strip()
+        if raw.startswith("data:"):
+            match = re.match(r"data:image/([^;]+);base64,", raw)
+            ext = match.group(1).lower() if match else "png"
+            raw = raw.split(",", 1)[1]
+        else:
+            ext = "png"
+            for suffix in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+                if image_filename.lower().endswith(suffix):
+                    ext = suffix.lstrip(".").lower()
+                    break
+        data = base64.b64decode(raw)
+        mission_folder = MISSIONS_DIR / mission_id
+        mission_folder.mkdir(parents=True, exist_ok=True)
+        out_name = f"{DESIGN_REFERENCE_NAME}.{ext}"
+        out_path = mission_folder / out_name
+        out_path.write_bytes(data)
+        console.print(f"[cyan][FLEET] Design image saved: {out_name}[/cyan]")
+        return out_name
+    except Exception as e:
+        console.print(f"[yellow][FLEET] Could not save design image: {e}[/yellow]")
+        return None
+
 
 # Check if publishing should be skipped (for tests/CI)
 SKIP_PUBLISH = os.getenv("GANTRY_SKIP_PUBLISH", "").lower() == "true"
@@ -88,7 +151,10 @@ class FleetManager:
     """
     The Fleet Orchestrator.
 
-    Pipeline: Voice Memo -> DB -> Architect -> Policy -> Foundry -> DB -> TTS
+    V6.5 Pipeline: Voice -> Consult -> Confirm -> Build -> Deploy
+
+    Old Pipeline: Voice Memo -> DB -> Architect -> Policy -> Foundry -> DB -> TTS
+    New Pipeline: Voice -> Consultant -> [Loop] -> Architect -> Policy -> Foundry -> DB -> TTS
 
     All operations run in background threads to keep Flask responsive.
     """
@@ -103,8 +169,443 @@ class FleetManager:
         self._policy = PolicyGate()
         self._publisher = Publisher()
         self._architect: Architect | None = None
+        self._consultant: Consultant | None = None  # V6.5
 
-        console.print("[green][FLEET] Fleet Manager online[/green]")
+        console.print("[green][FLEET] Fleet Manager online (V6.5 Consultation Mode)[/green]")
+
+    def _get_consultant(self) -> Consultant:
+        """Lazy init Consultant (requires AWS creds)."""
+        if self._consultant is None:
+            self._consultant = Consultant()
+        return self._consultant
+
+    # =========================================================================
+    # V6.5: CONSULTATION LOOP METHODS
+    # =========================================================================
+
+    def process_voice_input(
+        self,
+        user_input: str,
+        deploy: bool = True,
+        publish: bool = True,
+        image_base64: str | None = None,
+        image_filename: str | None = None,
+    ) -> dict:
+        """
+        Process voice/chat input through the Consultation Loop.
+
+        This is the V6.5 entry point that replaces direct dispatch_mission calls.
+
+        Flow:
+        1. Check if there's an active consultation (pending question)
+        2. If yes: This input is the ANSWER, continue conversation
+        3. If no: This is a NEW REQUEST, start consultation
+        4. If consultant says READY_TO_BUILD: Trigger build
+        5. Uploaded image is saved to mission folder and included in built repo.
+
+        Args:
+            user_input: The voice memo or chat message.
+            deploy: Whether to deploy to Vercel.
+            publish: Whether to publish to GitHub.
+            image_base64: Optional base64-encoded design image (mockup/screenshot).
+            image_filename: Optional original filename for the image.
+
+        Returns:
+            dict with:
+            - status: CONSULTING | AWAITING_INPUT | BUILDING | etc.
+            - speech: TTS-friendly response
+            - mission_id: The consultation/mission ID
+            - question: Optional question for user (if AWAITING_INPUT)
+        """
+        console.print(f"[cyan][FLEET] Processing: {user_input[:50]}...[/cyan]")
+
+        # Check for active consultation
+        active = get_active_consultation()
+
+        if active and active.pending_question:
+            # This is an ANSWER to a pending question
+            console.print(f"[cyan][FLEET] Continuing consultation: {active.id[:8]}[/cyan]")
+            return self._continue_consultation(
+                active.id,
+                user_input,
+                deploy=deploy,
+                publish=publish,
+                image_base64=image_base64,
+                image_filename=image_filename,
+            )
+        else:
+            # This is a NEW REQUEST
+            console.print("[cyan][FLEET] Starting new consultation[/cyan]")
+            return self._start_consultation(
+                user_input,
+                deploy=deploy,
+                publish=publish,
+                image_base64=image_base64,
+                image_filename=image_filename,
+            )
+
+    def _start_consultation(
+        self,
+        prompt: str,
+        deploy: bool = True,
+        publish: bool = True,
+        image_base64: str | None = None,
+        image_filename: str | None = None,
+    ) -> dict:
+        """
+        Start a new consultation.
+
+        Creates a consultation record and analyzes the request.
+        Saves uploaded design image to mission folder for inclusion in built repo.
+        """
+        # Detect design target
+        from src.core.architect import detect_design_target
+
+        design_target = detect_design_target(prompt)
+
+        # Create consultation in DB
+        mission_id = create_consultation(prompt, design_target)
+
+        # Save uploaded design image so it is included in the built repo
+        if image_base64 and image_filename:
+            _save_design_image(mission_id, image_base64, image_filename)
+
+        # Build conversation
+        conversation = [{"role": "user", "content": prompt}]
+
+        # Get consultant analysis
+        consultant = self._get_consultant()
+        response = consultant.analyze(conversation)
+
+        # Update design target if detected
+        if response.design_target and not design_target:
+            set_design_target(mission_id, response.design_target)
+            design_target = response.design_target
+
+        return self._handle_consultant_response(
+            mission_id, response, conversation, deploy=deploy, publish=publish
+        )
+
+    def _continue_consultation(
+        self,
+        mission_id: str,
+        user_input: str,
+        deploy: bool = True,
+        publish: bool = True,
+        image_base64: str | None = None,
+        image_filename: str | None = None,
+    ) -> dict:
+        """
+        Continue an existing consultation with user's answer.
+        Saves uploaded design image to mission folder if provided.
+        """
+        # Get current mission state
+        mission = get_mission(mission_id)
+        if not mission:
+            return {
+                "status": "error",
+                "speech": "Session not found. Please start again.",
+                "mission_id": None,
+            }
+
+        # Save uploaded design image so it is included in the built repo
+        if image_base64 and image_filename:
+            _save_design_image(mission_id, image_base64, image_filename)
+
+        # Clear pending question
+        clear_pending_question(mission_id)
+
+        # Append user response to history
+        append_to_conversation(mission_id, "user", user_input)
+
+        # Build conversation from history
+        conversation = mission.conversation_history or []
+        conversation.append({"role": "user", "content": user_input})
+
+        # Analyze with consultant
+        consultant = self._get_consultant()
+        response = consultant.analyze(conversation)
+
+        return self._handle_consultant_response(
+            mission_id, response, conversation, deploy=deploy, publish=publish
+        )
+
+    def _handle_consultant_response(
+        self,
+        mission_id: str,
+        response: ConsultantResponse,
+        conversation: list[dict],
+        deploy: bool = True,
+        publish: bool = True,
+    ) -> dict:
+        """
+        Handle the consultant's response and decide next step.
+        """
+        # Append assistant response to history
+        append_to_conversation(mission_id, "assistant", response.speech)
+
+        if response.status == "READY_TO_BUILD":
+            # User confirmed - proceed to build
+            console.print(f"[green][FLEET] Ready to build: {mission_id[:8]}[/green]")
+            mark_ready_to_build(mission_id)
+
+            # Get build prompt from conversation
+            consultant = self._get_consultant()
+            build_prompt = consultant.get_build_prompt(conversation)
+            design_target = consultant.get_design_target(conversation)
+
+            # Dispatch the actual build
+            self._dispatch_build(
+                mission_id, build_prompt, design_target, deploy=deploy, publish=publish
+            )
+
+            return {
+                "status": "BUILDING",
+                "speech": response.speech,
+                "mission_id": mission_id,
+                "design_target": design_target,
+            }
+
+        elif response.status in ("NEEDS_INPUT", "NEEDS_CONFIRMATION"):
+            # Ask user a question
+            console.print(f"[yellow][FLEET] Awaiting input: {mission_id[:8]}[/yellow]")
+            set_pending_question(
+                mission_id, response.question or response.speech, response.proposed_stack
+            )
+
+            return {
+                "status": "AWAITING_INPUT",
+                "speech": response.speech,
+                "mission_id": mission_id,
+                "question": response.question or response.speech,
+                "proposed_stack": response.proposed_stack,
+                "design_target": response.design_target,
+                "features": response.features,
+                "confidence": response.confidence,
+            }
+
+        else:
+            # Unknown status - treat as needs input
+            return {
+                "status": "AWAITING_INPUT",
+                "speech": response.speech,
+                "mission_id": mission_id,
+                "question": response.question,
+            }
+
+    def _dispatch_build(
+        self,
+        mission_id: str,
+        prompt: str,
+        design_target: str | None = None,
+        deploy: bool = True,
+        publish: bool = True,
+    ) -> None:
+        """
+        Dispatch the actual build after consultation is complete.
+
+        Runs in background thread like the original dispatch_mission.
+        """
+        console.print(
+            f"[cyan][FLEET] Dispatching build: {mission_id[:8]} (target={design_target})[/cyan]"
+        )
+
+        # Update status
+        update_mission_status(mission_id, "BUILDING", "Clone protocol initiated.")
+
+        # Spawn background thread
+        thread = threading.Thread(
+            target=self._run_mission_with_target,
+            args=(mission_id, prompt, design_target, deploy, publish),
+            name=f"mission-{mission_id[:8]}",
+            daemon=True,
+        )
+        thread.start()
+
+    def _run_mission_with_target(
+        self,
+        mission_id: str,
+        prompt: str,
+        design_target: str | None = None,
+        deploy: bool = True,
+        publish: bool = True,
+    ) -> None:
+        """
+        Run mission with design target injection.
+
+        V6.5: Passes design_target to the Architect for clone protocol.
+        """
+        progress: ProgressTracker | None = None
+
+        try:
+            # Phase 1: Architecting with design target
+            console.print(f"[cyan][Mission {mission_id[:8]}] Drafting blueprint...[/cyan]")
+            update_mission_status(
+                mission_id,
+                "ARCHITECTING",
+                f"Drafting {design_target or 'custom'} blueprint. Stand by.",
+            )
+
+            progress = ProgressTracker(mission_id, "ARCHITECTING").start()
+            architect = self._get_architect()
+
+            # V6.5: Pass design target for clone protocol
+            manifest = architect.draft_blueprint(prompt, design_target=design_target)
+            progress.stop()
+
+            # Continue with existing build pipeline (same as _run_mission)
+            self._execute_build_pipeline(mission_id, manifest, deploy, publish, progress)
+
+        except ArchitectError:
+            if progress:
+                progress.stop()
+            console.print(f"[red][Mission {mission_id[:8]}] Architect failed[/red]")
+            update_mission_status(
+                mission_id, "FAILED", "Mission aborted. Blueprint generation failed."
+            )
+        except Exception as e:
+            if progress:
+                progress.stop()
+            console.print(f"[red][Mission {mission_id[:8]}] Error: {e}[/red]")
+            update_mission_status(mission_id, "FAILED", f"Mission aborted. Error: {str(e)[:100]}")
+
+    def _execute_build_pipeline(
+        self,
+        mission_id: str,
+        manifest,
+        deploy: bool,
+        publish: bool,
+        progress: "ProgressTracker | None",
+    ) -> None:
+        """
+        Execute the build/deploy/publish pipeline.
+
+        Extracted from _run_mission to avoid code duplication.
+        """
+        import traceback
+
+        architect = self._get_architect()
+
+        try:
+            # Phase 2: Policy Check
+            console.print(f"[cyan][Mission {mission_id[:8]}] Policy check...[/cyan]")
+            update_mission_status(mission_id, "VALIDATING", "Running security check.")
+            self._policy.validate(manifest)
+
+            # Phase 3: Build with Self-Healing Loop
+            attempt = 0
+            mission_complete = False
+            result = None
+            deploy_url = None
+
+            while attempt < MAX_RETRIES and not mission_complete:
+                attempt += 1
+
+                console.print(
+                    f"[cyan][Mission {mission_id[:8]}] Building (attempt {attempt})...[/cyan]"
+                )
+                update_mission_status(
+                    mission_id,
+                    "BUILDING",
+                    f"Building {manifest.project_name}. Attempt {attempt}.",
+                )
+
+                progress = ProgressTracker(mission_id, "BUILDING").start()
+
+                try:
+                    result = self._foundry.build(manifest, mission_id, deploy=deploy)
+                    progress.stop()
+                    console.print(f"[green][Mission {mission_id[:8]}] Build PASSED[/green]")
+                    deploy_url = result.deploy_url if result else None
+                    mission_complete = True
+
+                except AuditFailedError as e:
+                    progress.stop()
+                    if attempt < MAX_RETRIES:
+                        self._heal_and_retry(
+                            mission_id, architect, manifest, e.output, attempt, "Audit"
+                        )
+                        manifest = architect.heal_blueprint(manifest, e.output)
+                    else:
+                        console.print(f"[red][Mission {mission_id[:8]}] Exhausted[/red]")
+
+                except DeploymentError as e:
+                    progress.stop()
+                    if attempt < MAX_RETRIES:
+                        error_context = f"Deployment failed: {e!s}"
+                        self._heal_and_retry(
+                            mission_id, architect, manifest, error_context, attempt, "Deploy"
+                        )
+                        try:
+                            manifest = architect.heal_blueprint(manifest, error_context)
+                        except ArchitectError:
+                            pass
+                    else:
+                        console.print(f"[red][Mission {mission_id[:8]}] Exhausted[/red]")
+
+                except Exception:
+                    progress.stop()
+                    if attempt < MAX_RETRIES:
+                        error_trace = traceback.format_exc()
+                        self._heal_and_retry(
+                            mission_id, architect, manifest, error_trace, attempt, "Build"
+                        )
+                        try:
+                            manifest = architect.heal_blueprint(manifest, error_trace)
+                        except ArchitectError:
+                            pass
+
+            # Check success
+            if not mission_complete:
+                update_mission_status(mission_id, "FAILED", f"Failed after {MAX_RETRIES} attempts.")
+                return
+
+            # Phase 4: Publishing
+            pr_url = None
+            should_skip = SKIP_PUBLISH or not publish
+            if not should_skip and self._publisher.is_configured():
+                console.print(f"[cyan][Mission {mission_id[:8]}] Opening PR...[/cyan]")
+                update_mission_status(mission_id, "PUBLISHING", "Opening Pull Request.")
+
+                progress = ProgressTracker(mission_id, "PUBLISHING").start()
+                evidence_path = MISSIONS_DIR / mission_id
+                try:
+                    pr_url = self._publisher.publish_mission(
+                        manifest, str(evidence_path), mission_id=mission_id
+                    )
+                except Exception as pub_err:
+                    console.print(f"[red]Publishing error: {pub_err}[/red]")
+                progress.stop()
+
+            # Final status
+            if deploy_url and pr_url:
+                update_mission_status(mission_id, "DEPLOYED", f"Live at {deploy_url}. PR opened.")
+            elif deploy_url:
+                update_mission_status(mission_id, "DEPLOYED", f"Live at {deploy_url}")
+            elif pr_url:
+                update_mission_status(mission_id, "PR_OPENED", "PR opened for review.")
+            else:
+                update_mission_status(mission_id, "SUCCESS", "Build verified.")
+
+        except SecurityViolation:
+            if progress:
+                progress.stop()
+            update_mission_status(mission_id, "BLOCKED", "Policy violation.")
+
+        except BuildTimeoutError:
+            if progress:
+                progress.stop()
+            update_mission_status(mission_id, "TIMEOUT", "Dead man's switch triggered.")
+
+        except SecurityBlock:
+            if progress:
+                progress.stop()
+            update_mission_status(mission_id, "BLOCKED", "Green-only rule violation.")
+
+        except PublishError:
+            if progress:
+                progress.stop()
+            update_mission_status(mission_id, "PUBLISH_FAILED", "GitHub push failed.")
 
     def _get_architect(self) -> Architect:
         """Lazy init Architect (requires AWS creds)."""

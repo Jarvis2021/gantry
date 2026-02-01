@@ -266,6 +266,29 @@ class Foundry:
         tar_buffer.seek(0)
         return tar_buffer.read()
 
+    def _find_design_reference(self, mission_folder: Path) -> str | None:
+        """Find design-reference image in mission folder (design-reference.png, .jpg, etc.)."""
+        if not mission_folder.exists():
+            return None
+        for ext in ("png", "jpg", "jpeg", "gif", "webp"):
+            name = f"design-reference.{ext}"
+            if (mission_folder / name).exists():
+                return name
+        return None
+
+    def _create_design_image_tar(self, mission_folder: Path, design_ref: str) -> bytes | None:
+        """Create tar containing design-reference image as public/design-reference.{ext}."""
+        src = mission_folder / design_ref
+        if not src.exists() or not src.is_file():
+            return None
+        tar_buffer = io.BytesIO()
+        with tarfile.open(fileobj=tar_buffer, mode="w") as tar:
+            info = tar.gettarinfo(str(src), arcname=f"public/{design_ref}")
+            with open(src, "rb") as f:
+                tar.addfile(info, f)
+        tar_buffer.seek(0)
+        return tar_buffer.read()
+
     def _ensure_image(self, image: str) -> None:
         """Pull image if not present."""
         try:
@@ -374,6 +397,16 @@ class Foundry:
             tar_data = self._create_tar(manifest)
             container.put_archive("/workspace", tar_data)
             blackbox.log("FILES_INJECTED", str(len(manifest.files)))
+
+            # Inject uploaded design-reference image into repo (public/ so it is served)
+            mission_folder = MISSIONS_DIR / mission_id
+            design_ref = self._find_design_reference(mission_folder)
+            if design_ref:
+                design_tar = self._create_design_image_tar(mission_folder, design_ref)
+                if design_tar:
+                    container.put_archive("/workspace", design_tar)
+                    blackbox.log("DESIGN_IMAGE_INJECTED", design_ref)
+                    console.print(f"[cyan][FOUNDRY] Design image added: public/{design_ref}[/cyan]")
 
             if timeout_triggered.is_set():
                 raise BuildTimeoutError("Dead Man's Switch triggered")

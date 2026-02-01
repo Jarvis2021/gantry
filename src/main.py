@@ -1,12 +1,21 @@
 # -----------------------------------------------------------------------------
-# GANTRY FLEET - API INTERFACE
+# GANTRY FLEET - API INTERFACE (V6.5 Consultation Loop)
 # -----------------------------------------------------------------------------
 # Responsibility: The endpoint for voice-activated and chat-based commands.
 # Designed for iOS Shortcuts, TTS engines, and web UI.
 #
-# Endpoints:
+# V6.5 UPGRADE: Consultation Loop
+# Old: Voice -> Build (one-shot)
+# New: Voice -> CTO Proposal -> User Feedback -> "Proceed" -> Clone Protocol
+#
+# New Endpoints:
+# - POST /gantry/consult: Start/continue consultation (V6.5)
+# - POST /gantry/voice: Process voice input through consultation loop
+#
+# Existing Endpoints:
 # - GET /: Serve the Gantry Console UI
-# - POST /gantry/architect: Accept voice memo/chat, dispatch mission
+# - POST /gantry/architect: Direct build (legacy, bypasses consultation)
+# - POST /gantry/chat: Architectural consultation
 # - GET /gantry/status/<id>: Get mission status and speech
 # - GET /gantry/missions: List recent missions
 # -----------------------------------------------------------------------------
@@ -14,6 +23,7 @@
 import os
 import sys
 from pathlib import Path
+from datetime import timedelta
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -47,6 +57,8 @@ app = Flask(__name__, static_folder=str(STATIC_DIR))
 
 # Secret key for sessions (use env var in production)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(24).hex())
+# Keep session across browser restarts and avoid repetitive login
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
 
 # Global Fleet Manager (lazy init)
 # Note: Architect is created per-request to avoid naming conflicts with Flask routes
@@ -400,6 +412,201 @@ def search_similar():
                 }
                 for m in results
             ],
+        }
+    )
+
+
+# =============================================================================
+# V6.5: CONSULTATION LOOP ENDPOINTS
+# =============================================================================
+
+
+@app.route("/gantry/voice", methods=["POST"])
+@require_rate_limit
+@require_auth
+def voice():
+    """
+    V6.5 Main Entry Point: Process voice/chat through the Consultation Loop.
+
+    This replaces direct builds with a conversational flow:
+    1. First request -> CTO analyzes and asks clarifying questions
+    2. User answers -> CTO confirms understanding
+    3. User says "proceed" -> Clone protocol initiated
+
+    Input: {"message": "Build a LinkedIn clone"}
+    Output:
+    - If needs input: {"status": "AWAITING_INPUT", "speech": "...", "question": "..."}
+    - If building: {"status": "BUILDING", "speech": "Clone protocol initiated."}
+
+    Body params:
+        message: The voice/chat message (required)
+        deploy: Whether to deploy to Vercel (default: true)
+        publish: Whether to publish to GitHub (default: true)
+    """
+    try:
+        data = request.json
+        if not data:
+            return jsonify(
+                {
+                    "status": "error",
+                    "error": "No JSON payload",
+                    "speech": "Error. No data received.",
+                }
+            ), 400
+
+        message = data.get("message", "").strip()
+        if not message:
+            return jsonify(
+                {
+                    "status": "error",
+                    "error": "Missing message field",
+                    "speech": "Error. No message provided.",
+                }
+            ), 400
+
+        deploy = data.get("deploy", True)
+        publish = data.get("publish", True)
+        image_base64 = data.get("image_base64")
+        image_filename = data.get("image_filename")
+
+        console.print(
+            f"[cyan][API] V6.5 Voice: {message[:50]}... "
+            f"(deploy={deploy}, publish={publish}, image={bool(image_base64)})[/cyan]"
+        )
+
+        # Process through consultation loop (uploaded image saved to mission folder and in repo)
+        result = get_fleet().process_voice_input(
+            message,
+            deploy=deploy,
+            publish=publish,
+            image_base64=image_base64,
+            image_filename=image_filename,
+        )
+
+        # Return appropriate status code
+        status = result.get("status")
+        if status == "BUILDING":
+            return jsonify(result), 202  # Accepted, processing
+        if status == "error":
+            return jsonify(result), 400
+        return jsonify(result), 200  # AWAITING_INPUT or other
+
+    except Exception as e:
+        console.print(f"[red][API] Voice error: {e}[/red]")
+        import traceback
+
+        console.print(f"[red]{traceback.format_exc()}[/red]")
+        return jsonify(
+            {"status": "error", "error": str(e), "speech": "System error. Try again."}
+        ), 500
+
+
+@app.route("/gantry/consult", methods=["POST"])
+@require_rate_limit
+@require_auth
+def consult():
+    """
+    V6.5 Consultation endpoint - start or continue a consultation.
+
+    Similar to /gantry/voice but with more detailed response.
+
+    Input: {"message": "Build a LinkedIn clone"}
+    Output: {
+        "status": "AWAITING_INPUT" | "BUILDING",
+        "speech": "I can build a LinkedIn clone. Proceed?",
+        "mission_id": "uuid",
+        "question": "...",
+        "proposed_stack": "next.js",
+        "design_target": "LINKEDIN",
+        "features": ["Login", "Feed", "Profile"],
+        "confidence": 0.85
+    }
+    """
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"status": "error", "speech": "No data received."}), 400
+
+        message = data.get("message", "").strip()
+        if not message:
+            return jsonify({"status": "error", "speech": "No message provided."}), 400
+
+        deploy = data.get("deploy", True)
+        publish = data.get("publish", True)
+        image_base64 = data.get("image_base64")
+        image_filename = data.get("image_filename")
+
+        console.print(
+            f"[cyan][API] V6.5 Consult: {message[:50]}... (image={bool(image_base64)})[/cyan]"
+        )
+
+        result = get_fleet().process_voice_input(
+            message,
+            deploy=deploy,
+            publish=publish,
+            image_base64=image_base64,
+            image_filename=image_filename,
+        )
+
+        return jsonify(result), 202 if result.get("status") == "BUILDING" else 200
+
+    except Exception as e:
+        console.print(f"[red][API] Consult error: {e}[/red]")
+        return jsonify({"status": "error", "speech": f"Error: {e}"}), 500
+
+
+@app.route("/gantry/consultation/<mission_id>", methods=["GET"])
+def get_consultation(mission_id: str):
+    """
+    Get the current state of a consultation.
+
+    Returns conversation history, pending question, and design target.
+    """
+    mission = get_mission(mission_id)
+
+    if mission is None:
+        return jsonify({"status": "not_found", "speech": "Consultation not found."}), 404
+
+    return jsonify(
+        {
+            "mission_id": mission.id,
+            "status": mission.status,
+            "prompt": mission.prompt,
+            "conversation_history": mission.conversation_history or [],
+            "pending_question": mission.pending_question,
+            "design_target": mission.design_target,
+            "proposed_stack": mission.proposed_stack,
+            "speech": mission.speech_output or f"Status: {mission.status}",
+        }
+    )
+
+
+@app.route("/gantry/themes", methods=["GET"])
+def list_themes():
+    """
+    List available famous app themes for cloning.
+
+    Returns the design system options for the Clone Protocol.
+    """
+    from src.core.architect import FAMOUS_THEMES
+
+    themes = []
+    for key, theme in FAMOUS_THEMES.items():
+        themes.append(
+            {
+                "id": key,
+                "name": theme.get("name", key),
+                "colors": theme.get("colors", {}),
+                "layout": theme.get("layout", ""),
+                "sample_page": theme.get("sample_page", ""),
+            }
+        )
+
+    return jsonify(
+        {
+            "count": len(themes),
+            "themes": themes,
+            "speech": f"{len(themes)} famous app themes available for cloning.",
         }
     )
 

@@ -197,6 +197,7 @@ def authenticate_session(password: str) -> bool:
     if verify_password(password):
         session["authenticated"] = True
         session["auth_time"] = time.time()
+        session.permanent = True  # Use PERMANENT_SESSION_LIFETIME (e.g. 7 days) to avoid repetitive login
         console.print("[green][AUTH] Session authenticated[/green]")
         return True
     console.print("[red][AUTH] Authentication failed[/red]")
@@ -264,8 +265,8 @@ def check_guardrails(message: str) -> GuardrailResult:
         return GuardrailResult(
             passed=False,
             reason="Message too short",
-            suggestion="Please provide more details about what you want to build. "
-            "For example: 'Build a todo app with user login and dark mode'",
+            suggestion="Please describe what you want to build in a bit more detail. "
+            "For example: a calculator, a dashboard, a social feed, or a landing page.",
         )
 
     # Check word count

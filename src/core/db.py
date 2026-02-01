@@ -40,6 +40,11 @@ class MissionRecord(BaseModel):
     Pydantic model for a mission database record.
 
     Why Pydantic: Type safety and validation when reading from DB.
+
+    V6.5 Additions:
+    - conversation_history: Tracks the back-and-forth with user
+    - design_target: Famous app being cloned (LINKEDIN, TWITTER, etc.)
+    - pending_question: Question waiting for user response
     """
 
     id: str
@@ -48,6 +53,11 @@ class MissionRecord(BaseModel):
     speech_output: str | None = None
     created_at: str
     updated_at: str | None = None
+    # V6.5: Consultation Loop Fields
+    conversation_history: list[dict] | None = None
+    design_target: str | None = None
+    pending_question: str | None = None
+    proposed_stack: str | None = None
 
 
 def _get_pool() -> SimpleConnectionPool:
@@ -106,6 +116,8 @@ def init_db() -> None:
 
     Why explicit init: Ensures table exists before any operations.
     Called at application startup. Safe to call multiple times.
+
+    V6.5: Added conversation_history, design_target, pending_question columns.
     """
     with get_connection() as conn, conn.cursor() as cursor:
         cursor.execute("""
@@ -115,7 +127,11 @@ def init_db() -> None:
                     status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
                     speech_output TEXT,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP
+                    updated_at TIMESTAMP,
+                    conversation_history JSONB DEFAULT '[]'::jsonb,
+                    design_target VARCHAR(100),
+                    pending_question TEXT,
+                    proposed_stack VARCHAR(50)
                 )
             """)
 
@@ -130,6 +146,18 @@ def init_db() -> None:
                 CREATE INDEX IF NOT EXISTS idx_missions_created_at 
                 ON missions(created_at DESC)
             """)
+
+        # V6.5: Add new columns if they don't exist (migration for existing DBs)
+        for column, col_type in [
+            ("conversation_history", "JSONB DEFAULT '[]'::jsonb"),
+            ("design_target", "VARCHAR(100)"),
+            ("pending_question", "TEXT"),
+            ("proposed_stack", "VARCHAR(50)"),
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE missions ADD COLUMN IF NOT EXISTS {column} {col_type}")
+            except Exception:
+                pass  # Column already exists
 
     console.print(f"[green][DB] Database initialized: {DB_CONFIG['database']}[/green]")
 
@@ -205,6 +233,11 @@ def get_mission(mission_id: str) -> MissionRecord | None:
             speech_output=row["speech_output"],
             created_at=row["created_at"].isoformat() if row["created_at"] else None,
             updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
+            # V6.5: Consultation fields
+            conversation_history=row.get("conversation_history") or [],
+            design_target=row.get("design_target"),
+            pending_question=row.get("pending_question"),
+            proposed_stack=row.get("proposed_stack"),
         )
 
 
@@ -237,6 +270,11 @@ def list_missions(limit: int = 50) -> list[MissionRecord]:
                 speech_output=row["speech_output"],
                 created_at=row["created_at"].isoformat() if row["created_at"] else None,
                 updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
+                # V6.5: Consultation fields
+                conversation_history=row.get("conversation_history") or [],
+                design_target=row.get("design_target"),
+                pending_question=row.get("pending_question"),
+                proposed_stack=row.get("proposed_stack"),
             )
             for row in rows
         ]
@@ -335,3 +373,198 @@ def close_pool() -> None:
         _pool.closeall()
         _pool = None
         console.print("[cyan][DB] Connection pool closed[/cyan]")
+
+
+# =============================================================================
+# V6.5: CONSULTATION LOOP DATABASE METHODS
+# =============================================================================
+
+
+def create_consultation(prompt: str, design_target: str | None = None) -> str:
+    """
+    Create a new consultation session.
+
+    This is the V6.5 "Consultation Phase" - before building, we consult.
+
+    Args:
+        prompt: The user's initial request.
+        design_target: Optional famous app to clone (LINKEDIN, TWITTER, etc.)
+
+    Returns:
+        The consultation/mission ID.
+    """
+    import json
+
+    mission_id = str(uuid.uuid4())
+    initial_history = [{"role": "user", "content": prompt}]
+
+    with get_connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO missions (id, prompt, status, conversation_history, design_target, created_at)
+            VALUES (%s, %s, 'CONSULTING', %s, %s, CURRENT_TIMESTAMP)
+            """,
+            (mission_id, prompt, json.dumps(initial_history), design_target),
+        )
+
+    console.print(f"[cyan][DB] Consultation started: {mission_id[:8]}[/cyan]")
+    return mission_id
+
+
+def append_to_conversation(mission_id: str, role: str, content: str) -> None:
+    """
+    Append a message to the conversation history.
+
+    Args:
+        mission_id: The mission/consultation ID.
+        role: 'user' or 'assistant'.
+        content: The message content.
+    """
+    import json
+
+    with get_connection() as conn, conn.cursor() as cursor:
+        # Fetch current history
+        cursor.execute("SELECT conversation_history FROM missions WHERE id = %s", (mission_id,))
+        row = cursor.fetchone()
+        history = row[0] if row and row[0] else []
+
+        # Append new message
+        history.append({"role": role, "content": content})
+
+        # Update
+        cursor.execute(
+            """
+            UPDATE missions 
+            SET conversation_history = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            """,
+            (json.dumps(history), mission_id),
+        )
+
+    console.print(f"[dim][DB] Conversation updated: {mission_id[:8]} (+{role})[/dim]")
+
+
+def set_pending_question(mission_id: str, question: str, proposed_stack: str | None = None) -> None:
+    """
+    Set a pending question that Gantry is waiting for the user to answer.
+
+    Args:
+        mission_id: The mission/consultation ID.
+        question: The question to ask the user.
+        proposed_stack: Optional proposed tech stack.
+    """
+    with get_connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE missions 
+            SET pending_question = %s, proposed_stack = %s, 
+                status = 'AWAITING_INPUT', updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            """,
+            (question, proposed_stack, mission_id),
+        )
+
+    console.print(f"[yellow][DB] Awaiting input: {mission_id[:8]}[/yellow]")
+
+
+def clear_pending_question(mission_id: str) -> None:
+    """
+    Clear the pending question after user responds.
+
+    Args:
+        mission_id: The mission/consultation ID.
+    """
+    with get_connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE missions 
+            SET pending_question = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            """,
+            (mission_id,),
+        )
+
+
+def set_design_target(mission_id: str, design_target: str) -> None:
+    """
+    Set the design target (famous app to clone).
+
+    Args:
+        mission_id: The mission/consultation ID.
+        design_target: The design target (LINKEDIN, TWITTER, etc.)
+    """
+    with get_connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE missions 
+            SET design_target = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            """,
+            (design_target.upper(), mission_id),
+        )
+
+    console.print(f"[cyan][DB] Design target set: {design_target}[/cyan]")
+
+
+def get_active_consultation(limit: int = 1) -> MissionRecord | None:
+    """
+    Get the most recent active consultation (CONSULTING or AWAITING_INPUT).
+
+    Used to check if there's an ongoing conversation to continue.
+
+    Args:
+        limit: Number of consultations to return.
+
+    Returns:
+        MissionRecord if found, None otherwise.
+    """
+    with get_connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
+        cursor.execute(
+            """
+            SELECT * FROM missions 
+            WHERE status IN ('CONSULTING', 'AWAITING_INPUT')
+            ORDER BY created_at DESC 
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        row = cursor.fetchone()
+
+        if not row:
+            return None
+
+        return MissionRecord(
+            id=str(row["id"]),
+            prompt=row["prompt"],
+            status=row["status"],
+            speech_output=row["speech_output"],
+            created_at=row["created_at"].isoformat() if row["created_at"] else None,
+            updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
+            conversation_history=row.get("conversation_history") or [],
+            design_target=row.get("design_target"),
+            pending_question=row.get("pending_question"),
+            proposed_stack=row.get("proposed_stack"),
+        )
+
+
+def mark_ready_to_build(mission_id: str) -> None:
+    """
+    Mark consultation as ready to build.
+
+    Called when user confirms "proceed" or "yes".
+
+    Args:
+        mission_id: The mission/consultation ID.
+    """
+    with get_connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE missions 
+            SET status = 'READY_TO_BUILD', pending_question = NULL, 
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            """,
+            (mission_id,),
+        )
+
+    console.print(f"[green][DB] Ready to build: {mission_id[:8]}[/green]")

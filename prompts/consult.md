@@ -88,9 +88,7 @@ Should I build this? Any specific data to display?
 - If continuing existing app, set continue_from: "project_name"
 - If user provided image/mockup, set has_image_reference: true and extract colors
 
-## Documentation Standards
-
-When discussing the app, always mention that the built app will include:
+## Documentation StandardsWhen discussing the app, always mention that the built app will include:
 - Comprehensive README.md with features, usage, and development guide
 - Clean, commented code
 - Unit tests for core functionality

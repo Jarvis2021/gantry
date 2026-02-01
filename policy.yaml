@@ -1,49 +1,38 @@
 # -----------------------------------------------------------------------------
 # GANTRY SECURITY POLICY
 # -----------------------------------------------------------------------------
-# The Gatekeeper's rulebook. Any manifest that violates these rules
-# is rejected before reaching the Foundry.
-#
-# "Access Denied" - The Gatekeeper
+# Only block when there is a real security concern (dangerous code or abuse),
+# not for operational choices like stack or file count. The agent decides
+# how many files and which stack; the Gatekeeper only blocks genuine threats.
 # -----------------------------------------------------------------------------
 
-# Allowed technology stacks
+# Stacks: allow any stack the Architect can produce (model supports python, node, rust).
+# Do not block builds for "wrong" stack; agent chooses.
 allowed_stacks:
   - python
   - node
   - rust
 
-# Forbidden code patterns (regex)
-# If ANY of these patterns appear in file content, the manifest is REJECTED.
+# Forbidden patterns: ONLY genuinely dangerous code (what an agent would flag as unsafe).
+# Do not block for normal app code (e.g. "run(" in a comment, or harmless paths).
 forbidden_patterns:
-  # Destructive filesystem operations
-  - "rm -rf"
-  - "mkfs"
-  
+  # Destructive filesystem (targeting root or whole disk)
+  - "rm\\s+-rf\\s+/"
+  - "mkfs\\.|\\bformat\\s+[a-z]+\\s+"
   # Fork bomb
   - ":\\(\\)\\{ :\\|:& \\};:"
-  
-  # Shell command injection vectors
+  # Shell injection (Python - shell=True with user input is dangerous)
   - "os\\.system\\s*\\("
-  - "subprocess\\.call\\s*\\("
-  - "subprocess\\.run\\s*\\([^)]*shell\\s*=\\s*True"
-  
-  # Dynamic code execution
-  - "eval\\s*\\("
-  - "exec\\s*\\("
+  - "subprocess\\.(call|run|Popen)\\s*\\([^)]*shell\\s*=\\s*True"
+  # Dynamic import (Python - can load arbitrary code; do not block eval/exec in client-side JS e.g. calculators)
   - "__import__\\s*\\("
-  
-  # Sensitive file access
-  - "open\\s*\\([^)]*['\"]\/etc"
-  - "open\\s*\\([^)]*['\"]\/var\\/run"
-  
-  # Network backdoors
-  - "reverse.*shell"
-  - "bind.*shell"
-  
-  # Crypto mining
-  - "stratum\\+tcp"
-  - "xmrig"
+  # Backdoors / mining
+  - "reverse.*shell|bind.*shell"
+  - "stratum\\+tcp|xmrig"
+  # Sensitive path access (reading system paths from generated code)
+  - "open\\s*\\([^)]*['\"]/etc/"
+  - "open\\s*\\([^)]*['\"]/var/run/"
 
-# Maximum number of files per manifest
-max_files: 10
+# File count: do not block for "too many files". Agent may need many for a real app.
+# Only cap to prevent abuse (e.g. millions of files). 200 is plenty for any single app.
+max_files: 200
