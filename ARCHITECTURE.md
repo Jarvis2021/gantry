@@ -182,6 +182,11 @@ flowchart TB
 
 This is the main path: **Voice/Chat → AI Architect Proposal → User Feedback → "Proceed" → Build.**
 
+![Consultation Flow](assets/Architecture2.jpg)
+
+<details>
+<summary>View as Mermaid Diagram</summary>
+
 ```mermaid
 sequenceDiagram
     participant User as User
@@ -234,9 +239,16 @@ sequenceDiagram
     WS-->>User: Real-time status updates
 ```
 
+</details>
+
 ### Direct Build (Legacy / Bypass Consultation)
 
 Single-shot build without the consultation loop (e.g. automation or "build exactly this").
+
+![Direct Build Flow](assets/Architecture3.jpg)
+
+<details>
+<summary>View as Mermaid Diagram</summary>
 
 ```mermaid
 sequenceDiagram
@@ -267,6 +279,8 @@ sequenceDiagram
     Client->>WS: Subscribe to /gantry/ws/{id}
     WS-->>Client: Real-time status updates
 ```
+
+</details>
 
 ---
 
@@ -343,6 +357,11 @@ Gantry implements multiple layers of protection against timeouts and resource ex
 | **Deploy Timeout** | 120s | Vercel CLI timeout |
 | **Verification Retries** | 3 | Check URL accessibility |
 
+![Deployment Safety](assets/Architecture4.png)
+
+<details>
+<summary>View as Mermaid Diagram</summary>
+
 ```mermaid
 flowchart LR
     subgraph Protection["Resource Protection Layers"]
@@ -354,6 +373,8 @@ flowchart LR
     
     Request --> Semaphore --> MissionTimeout --> ExecTimeout --> DMS --> Result
 ```
+
+</details>
 
 ---
 
@@ -428,6 +449,11 @@ The "Fractal Foundry" vision: GantryFleet will evolve from a single-agent factor
 3. **Critic Agent**: Independent code review before deployment
 4. **Healer Agent**: Dedicated self-repair with learning from past failures
 
+![Multi-Agent Architecture](assets/Architecture5.jpg)
+
+<details>
+<summary>View as Mermaid Diagram</summary>
+
 ```mermaid
 flowchart TB
     Coordinator["Coordinator Agent"] --> Architect["Architect (Node)"]
@@ -436,6 +462,8 @@ flowchart TB
     Architect --> Healer["Healer Agent"]
     Critic --> Healer
 ```
+
+</details>
 
 ### Vector Memory (Planned)
 
@@ -469,6 +497,11 @@ Generated applications include their own internal agents:
 
 For high-scale production deployments, GantryFleet supports a 3-layer hybrid architecture:
 
+![Hybrid Cloud Architecture](assets/Architecture6.jpg)
+
+<details>
+<summary>View as ASCII Diagram</summary>
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    LAYER 1: EDGE (Vercel)                   │
@@ -496,6 +529,8 @@ For high-scale production deployments, GantryFleet supports a 3-layer hybrid arc
 │  • Builder Image Cache                                      │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+</details>
 
 **Deployment Options:**
 
