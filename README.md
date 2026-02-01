@@ -38,6 +38,42 @@
 
 ---
 
+## The "Goldilocks" Architecture: Why We Chose Docker
+
+To understand why GantryFleet is **safer for Enterprise**, compare how the current giants handle code execution:
+
+| Platform | Approach | Trade-off |
+|----------|----------|-----------|
+| **Claude** | Remote Sandbox | Safe, but disconnected from your local DB, private keys, network |
+| **Cursor** | Local Host (Bare Metal) | Full access, but AI mistakes affect your actual machine |
+| **GantryFleet** | Local Containerization | Best of both worlds |
+
+GantryFleet takes the **third path**: we build over Docker containers.
+
+### 1. Security vs. "The Rogue Agent"
+
+Unlike Cursor, which requires you to trust the AI with your file system, GantryFleet operates in a **Zero-Trust environment**:
+
+- Every task spins up a **fresh, isolated Docker container**
+- The Agent has "Root" access only inside that **disposable box**
+- If the AI makes a mistake or tries to delete a system file, it destroys a temporary container that didn't exist 5 minutes ago
+- **Your laptop remains untouched**
+
+### 2. Integration vs. "The Cloud Wall"
+
+Unlike Claude, which is stuck in the cloud, GantryFleet **runs on your network**:
+
+- Connect to your **local Postgres database**
+- Ping your **internal staging servers**
+- Access your **private package registry**
+- **Enterprise Win:** You get the safety of a sandbox without losing access to your internal tools
+
+### 3. The "Works on My Machine" Guarantee
+
+Enterprises love Docker because it **enforces consistency**. GantryFleet doesn't just hand you code; it hands you a **verified Docker image**. If GantryFleet says "The tests passed," it means they passed in a clean, standard environment—not just on a developer's messy laptop. This makes the handoff to CI/CD trivial.
+
+---
+
 ## Key Capabilities
 
 ### 1. AI Architect Consultation
