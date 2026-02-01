@@ -473,82 +473,115 @@
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
         /* Login Overlay */
+        /* Login Overlay - Mobile-First */
         .login-overlay {
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
+            background: rgba(0, 0, 0, 0.6);
             backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 1000;
+            z-index: 9999;
+            padding: 16px;
+            overflow: auto;
         }
 
-        .login-overlay.hidden { display: none; }
+        .login-overlay.hidden { display: none !important; }
 
         .login-card {
             background: var(--bg);
-            border-radius: 12px;
-            padding: 24px;
-            width: 320px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            border-radius: 16px;
+            padding: 28px 24px;
+            width: 100%;
+            max-width: 320px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+            animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .login-title {
-            font-size: 18px;
+            font-size: 20px;
             font-weight: 600;
-            margin-bottom: 4px;
+            margin-bottom: 6px;
             text-align: center;
         }
 
         .login-subtitle {
-            font-size: 11px;
+            font-size: 13px;
             color: var(--text-secondary);
             text-align: center;
-            margin-bottom: 16px;
+            margin-bottom: 20px;
         }
 
         .login-input {
             width: 100%;
-            padding: 10px 12px;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            font-size: 13px;
-            margin-bottom: 12px;
+            padding: 14px 16px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            font-size: 16px;
+            font-family: inherit;
+            margin-bottom: 16px;
+            -webkit-appearance: none;
+            appearance: none;
         }
 
         .login-input:focus {
             outline: none;
             border-color: var(--blue);
+            box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.15);
         }
 
         .login-btn {
             width: 100%;
-            padding: 10px;
+            padding: 14px;
             background: var(--blue);
             color: white;
             border: none;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 500;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            font-family: inherit;
             cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
         }
 
         .login-btn:hover { background: var(--blue-hover); }
-        .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .login-btn:active { transform: scale(0.98); }
+        .login-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
         .login-error {
             color: var(--red);
-            font-size: 11px;
+            font-size: 13px;
             text-align: center;
-            margin-top: 8px;
+            margin-top: 12px;
             display: none;
+            padding: 8px;
+            background: var(--red-bg);
+            border-radius: 6px;
         }
 
         .login-error.show { display: block; }
+
+        /* Mobile-specific login fixes */
+        @media (max-width: 400px) {
+            .login-card {
+                padding: 24px 20px;
+                border-radius: 12px;
+            }
+            .login-input, .login-btn {
+                font-size: 17px;
+                padding: 16px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -557,8 +590,10 @@
         <div class="login-card">
             <div class="login-title">GantryFleet</div>
             <div class="login-subtitle">Enter your password to continue</div>
-            <input type="password" class="login-input" id="passwordInput" placeholder="Password" autocomplete="current-password">
-            <button class="login-btn" id="loginBtn" onclick="login()">Unlock</button>
+            <form id="loginForm" onsubmit="login(); return false;">
+                <input type="password" class="login-input" id="passwordInput" placeholder="Password" autocomplete="current-password" inputmode="text" enterkeyhint="go" required>
+                <button type="submit" class="login-btn" id="loginBtn">Unlock</button>
+            </form>
             <div class="login-error" id="loginError">Invalid password. Please try again.</div>
         </div>
     </div>
@@ -659,10 +694,26 @@
                 if (data.authenticated) {
                     isAuthenticated = true;
                     loginOverlay.classList.add('hidden');
+                } else {
+                    // Not authenticated - show login and focus password
+                    showLoginOverlay();
                 }
             } catch (e) {
                 console.error('Auth check failed:', e);
+                // On error, show login overlay
+                showLoginOverlay();
             }
+        }
+
+        // Show login overlay and focus password input
+        function showLoginOverlay() {
+            loginOverlay.classList.remove('hidden');
+            // Small delay to ensure overlay is visible before focusing
+            setTimeout(() => {
+                passwordInput.focus();
+                // On iOS, scroll into view
+                passwordInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
         }
 
         // Login function
@@ -699,10 +750,7 @@
             }
         }
 
-        // Enter key to login
-        passwordInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') login();
-        });
+        // Form handles Enter key automatically via onsubmit
 
         const chatMessages = document.getElementById('chat-messages');
         const promptInput = document.getElementById('prompt-input');
@@ -865,7 +913,7 @@
 
                 // Handle auth error
                 if (response.status === 401 || data.needs_auth) {
-                    loginOverlay.classList.remove('hidden');
+                    showLoginOverlay();
                     addMsg('Session expired. Please log in again.', false);
                     return;
                 }
@@ -1187,7 +1235,7 @@
                         await loadProjects();
                     } else if (res.status === 401) {
                         addMsg('<strong>Please log in to clear projects.</strong>');
-                        loginOverlay.classList.remove('hidden');
+                        showLoginOverlay();
                     } else {
                         addMsg('<strong>Clear failed:</strong> ' + (data.speech || data.error || 'Unknown error'));
                     }
