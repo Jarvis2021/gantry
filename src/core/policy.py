@@ -28,11 +28,12 @@ class PolicyConfig(BaseModel):
     Pydantic model for the policy configuration.
 
     Loaded from policy.yaml at startup.
+    Policy blocks only for real security concerns; file count is a high cap to prevent abuse.
     """
 
     allowed_stacks: list[str]
     forbidden_patterns: list[str]
-    max_files: int = 10
+    max_files: int = 200  # High cap to prevent abuse only; agent decides file count
 
 
 class SecurityViolation(Exception):
@@ -81,7 +82,7 @@ class PolicyGate:
             return PolicyConfig(
                 allowed_stacks=["python", "node", "rust"],
                 forbidden_patterns=["rm -rf", "mkfs", r":\(\)\{ :\|:& \};:"],
-                max_files=10,
+                max_files=200,
             )
 
         with open(self._policy_path) as f:
@@ -133,13 +134,13 @@ class PolicyGate:
             )
 
     def _check_file_count(self, manifest: GantryManifest) -> None:
-        """Check if file count is within limits."""
+        """Check file count only to prevent abuse (e.g. millions of files)."""
         if len(manifest.files) > self._config.max_files:
-            console.print("[red][GATEKEEPER] Access Denied: Too many files[/red]")
+            console.print("[red][GATEKEEPER] Access Denied: Manifest too large (abuse cap)[/red]")
             raise SecurityViolation(
                 f"Access Denied: Too many files ({len(manifest.files)} > {self._config.max_files})",
                 rule="max_files",
-                details=f"Maximum allowed: {self._config.max_files}",
+                details=f"Abuse cap: {self._config.max_files}",
             )
 
     def _check_forbidden_patterns(self, manifest: GantryManifest) -> None:

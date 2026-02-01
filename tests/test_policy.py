@@ -35,29 +35,28 @@ class TestPolicyGate:
         # Should not raise
         policy_gate.validate(valid_manifest)
 
-    def test_forbidden_pattern_exec_fails(self, policy_gate):
-        """Test that exec() usage is caught."""
+    def test_forbidden_pattern_import_fails(self, policy_gate):
+        """Test that __import__() usage is caught (dynamic import)."""
         manifest = GantryManifest(
             project_name="DangerApp",
             stack=StackType.PYTHON,
             files=[
-                FileSpec(path="evil.py", content="exec('print(1)')"),
+                FileSpec(path="evil.py", content="m = __import__('os')"),
             ],
             audit_command="python evil.py",
             run_command="python evil.py",
         )
         with pytest.raises(SecurityViolation) as exc_info:
             policy_gate.validate(manifest)
-        # Just verify the exception was raised with file info
         assert "evil.py" in str(exc_info.value)
 
-    def test_forbidden_pattern_eval_fails(self, policy_gate):
-        """Test that eval() usage is caught."""
+    def test_forbidden_pattern_os_system_fails(self, policy_gate):
+        """Test that os.system() usage is caught."""
         manifest = GantryManifest(
             project_name="DangerApp",
             stack=StackType.PYTHON,
             files=[
-                FileSpec(path="evil.py", content="result = eval(user_input)"),
+                FileSpec(path="evil.py", content="os.system('rm -rf /tmp/x')"),
             ],
             audit_command="python evil.py",
             run_command="python evil.py",

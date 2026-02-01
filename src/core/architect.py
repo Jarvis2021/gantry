@@ -24,6 +24,298 @@ BEDROCK_REGION = os.getenv("BEDROCK_REGION", "us-east-1")
 BEDROCK_ENDPOINT = f"https://bedrock-runtime.{BEDROCK_REGION}.amazonaws.com"
 CLAUDE_MODEL_ID = "anthropic.claude-3-5-sonnet-20240620-v1:0"
 
+# =============================================================================
+# V6.5: FAMOUS THEMES DESIGN SYSTEM
+# =============================================================================
+# Pixel-perfect cloning of famous apps. When user says "Build LinkedIn",
+# Gantry injects these exact design specs into the system prompt.
+# =============================================================================
+
+FAMOUS_THEMES: dict[str, dict] = {
+    "LINKEDIN": {
+        "name": "LinkedIn",
+        "colors": {
+            "primary": "#0a66c2",
+            "secondary": "#f3f2ef",
+            "background": "#f4f2ee",
+            "card": "#ffffff",
+            "text": "#000000e6",
+            "text_secondary": "#00000099",
+            "border": "#00000026",
+            "success": "#057642",
+        },
+        "font": "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        "layout": "navbar-top-fixed, three-column-grid",
+        "components": [
+            "Fixed top navbar (white, 52px height, shadow)",
+            "Left sidebar (profile card, 225px width)",
+            "Center feed (main content, max 555px)",
+            "Right sidebar (news/ads, 300px width)",
+            "Rounded profile pictures",
+            "Card-based posts with reactions bar",
+        ],
+        "icons": "lucide-react",
+        "border_radius": "8px",
+        "sample_page": "feed/home with post composer and posts",
+    },
+    "TWITTER": {
+        "name": "Twitter/X",
+        "colors": {
+            "primary": "#1d9bf0",
+            "secondary": "#0f1419",
+            "background": "#000000",
+            "card": "#16181c",
+            "text": "#e7e9ea",
+            "text_secondary": "#71767b",
+            "border": "#2f3336",
+            "accent": "#f91880",
+        },
+        "font": "'TwitterChirp', -apple-system, system-ui, sans-serif",
+        "layout": "sidebar-left-fixed, feed-center, trends-right",
+        "components": [
+            "Left sidebar navigation (68px collapsed, 275px expanded)",
+            "Center timeline (max 600px)",
+            "Right sidebar (search, trends, 350px)",
+            "Circular profile pictures",
+            "Tweet cards with reply/retweet/like/share bar",
+            "Floating compose button (mobile)",
+        ],
+        "icons": "lucide-react",
+        "border_radius": "16px (full round for buttons)",
+        "sample_page": "home timeline with tweet composer",
+    },
+    "INSTAGRAM": {
+        "name": "Instagram",
+        "colors": {
+            "primary": "#0095f6",
+            "gradient": "linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)",
+            "background": "#000000",
+            "card": "#000000",
+            "text": "#f5f5f5",
+            "text_secondary": "#a8a8a8",
+            "border": "#262626",
+        },
+        "font": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, sans-serif",
+        "layout": "navbar-top, stories-row, grid-feed",
+        "components": [
+            "Top navbar with logo, search, icons",
+            "Stories row (horizontal scroll, circular thumbnails)",
+            "Post cards (square images, action bar)",
+            "Grid profile view (3 columns)",
+            "Bottom tab navigation (mobile)",
+        ],
+        "icons": "lucide-react",
+        "border_radius": "8px cards, full round for stories",
+        "sample_page": "feed with stories and posts",
+    },
+    "FACEBOOK": {
+        "name": "Facebook",
+        "colors": {
+            "primary": "#1877f2",
+            "secondary": "#42b72a",
+            "background": "#18191a",
+            "card": "#242526",
+            "text": "#e4e6eb",
+            "text_secondary": "#b0b3b8",
+            "border": "#3e4042",
+        },
+        "font": "Segoe UI, Helvetica, Arial, sans-serif",
+        "layout": "navbar-top-fixed, three-column",
+        "components": [
+            "Blue top navbar (56px)",
+            "Left navigation (shortcuts, groups)",
+            "Center feed (posts, stories)",
+            "Right sidebar (contacts, chat)",
+            "Rounded story thumbnails",
+            "Post composer with attachments",
+        ],
+        "icons": "lucide-react",
+        "border_radius": "8px",
+        "sample_page": "news feed with post composer",
+    },
+    "SLACK": {
+        "name": "Slack",
+        "colors": {
+            "primary": "#4a154b",
+            "secondary": "#36c5f0",
+            "accent": "#ecb22e",
+            "background": "#1a1d21",
+            "sidebar": "#19171d",
+            "card": "#222529",
+            "text": "#d1d2d3",
+            "text_secondary": "#ababad",
+        },
+        "font": "Slack-Lato, Lato, 'Helvetica Neue', sans-serif",
+        "layout": "sidebar-left-fixed, channel-center, thread-right",
+        "components": [
+            "Workspace switcher (left edge)",
+            "Channel sidebar (220px)",
+            "Main message area (threaded)",
+            "Thread panel (right, optional)",
+            "Message input with rich formatting",
+            "Channel header with info",
+        ],
+        "icons": "lucide-react",
+        "border_radius": "6px",
+        "sample_page": "channel view with messages",
+    },
+    "SPOTIFY": {
+        "name": "Spotify",
+        "colors": {
+            "primary": "#1db954",
+            "background": "#121212",
+            "card": "#181818",
+            "card_hover": "#282828",
+            "text": "#ffffff",
+            "text_secondary": "#b3b3b3",
+        },
+        "font": "Circular, spotify-circular, Helvetica, Arial, sans-serif",
+        "layout": "sidebar-left, main-content, now-playing-bottom",
+        "components": [
+            "Left navigation sidebar (dark)",
+            "Main content area (scrollable grid)",
+            "Now Playing bar (bottom, fixed)",
+            "Album art grid (cards)",
+            "Playlist headers with gradient",
+            "Progress bar with hover preview",
+        ],
+        "icons": "lucide-react",
+        "border_radius": "8px cards, 4px for now-playing",
+        "sample_page": "home with playlists grid",
+    },
+    "NOTION": {
+        "name": "Notion",
+        "colors": {
+            "primary": "#000000",
+            "background": "#191919",
+            "card": "#202020",
+            "text": "#ffffffcf",
+            "text_secondary": "#ffffff71",
+            "accent": "#35a9ff",
+            "border": "#ffffff1a",
+        },
+        "font": "ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif",
+        "layout": "sidebar-left-collapsible, main-editor",
+        "components": [
+            "Collapsible sidebar with pages tree",
+            "Page header with icon/cover",
+            "Block-based editor",
+            "Slash command menu",
+            "Breadcrumb navigation",
+            "Properties panel",
+        ],
+        "icons": "lucide-react",
+        "border_radius": "3px",
+        "sample_page": "workspace with page tree and editor",
+    },
+    "AIRBNB": {
+        "name": "Airbnb",
+        "colors": {
+            "primary": "#ff385c",
+            "secondary": "#00a699",
+            "background": "#ffffff",
+            "card": "#ffffff",
+            "text": "#222222",
+            "text_secondary": "#717171",
+            "border": "#dddddd",
+        },
+        "font": "Circular, -apple-system, BlinkMacSystemFont, Roboto, sans-serif",
+        "layout": "navbar-top, search-hero, card-grid",
+        "components": [
+            "Sticky navbar with search bar",
+            "Category filter bar (horizontal scroll)",
+            "Listing cards (image carousel, details)",
+            "Map view toggle",
+            "Filter modal",
+            "Wishlist heart icon",
+        ],
+        "icons": "lucide-react",
+        "border_radius": "12px",
+        "sample_page": "home with search and listings grid",
+    },
+}
+
+
+def get_theme_prompt(design_target: str) -> str:
+    """
+    Get the design system injection prompt for a famous app clone.
+
+    Args:
+        design_target: The app to clone (LINKEDIN, TWITTER, etc.)
+
+    Returns:
+        Additional system prompt text with exact design specs.
+    """
+    theme = FAMOUS_THEMES.get(design_target.upper())
+    if not theme:
+        return ""
+
+    colors = theme.get("colors", {})
+    color_lines = "\n".join([f"    --{k}: {v};" for k, v in colors.items()])
+
+    components = "\n".join([f"  - {c}" for c in theme.get("components", [])])
+
+    return f"""
+=== CLONE PROTOCOL: {theme["name"]} ===
+
+You are now in PIXEL-PERFECT CLONE MODE. Replicate {theme["name"]}'s exact design.
+
+CSS VARIABLES (MUST USE EXACTLY):
+:root {{
+{color_lines}
+    --font-family: {theme.get("font", "system-ui")};
+    --border-radius: {theme.get("border_radius", "8px")};
+}}
+
+LAYOUT: {theme.get("layout", "standard")}
+
+REQUIRED COMPONENTS:
+{components}
+
+ICONS: Use {theme.get("icons", "lucide-react")} for matching icons.
+
+SAMPLE PAGE TO BUILD: {theme.get("sample_page", "main view")}
+
+CRITICAL:
+1. Use Tailwind CSS classes that match these exact hex colors
+2. Include a realistic mock login page as entry point
+3. Use placeholder content that looks real (names, avatars, posts)
+4. Mobile responsive (works on phone)
+5. Include hover states and transitions
+
+"""
+
+
+def detect_design_target(prompt: str) -> str | None:
+    """
+    Detect if user is requesting a clone of a famous app.
+
+    Args:
+        prompt: User's request.
+
+    Returns:
+        Design target key if detected, None otherwise.
+    """
+    prompt_lower = prompt.lower()
+
+    keywords_map = {
+        "LINKEDIN": ["linkedin", "professional network", "job network"],
+        "TWITTER": ["twitter", "x.com", "tweet", "microblog"],
+        "INSTAGRAM": ["instagram", "insta", "photo sharing"],
+        "FACEBOOK": ["facebook", "fb", "social network"],
+        "SLACK": ["slack", "team chat", "workspace chat"],
+        "SPOTIFY": ["spotify", "music streaming", "music player"],
+        "NOTION": ["notion", "note taking", "workspace"],
+        "AIRBNB": ["airbnb", "vacation rental", "booking"],
+    }
+
+    for target, keywords in keywords_map.items():
+        if any(kw in prompt_lower for kw in keywords):
+            return target
+
+    return None
+
+
 # System prompt that constrains Claude to output valid JSON
 SYSTEM_PROMPT = """You are the Gantry Chief Architect. Generate REAL WEB APPLICATIONS with beautiful UI.
 
@@ -32,6 +324,7 @@ CRITICAL RULES:
 2. NO markdown, NO explanation, NO commentary - just pure JSON.
 3. Build REAL web apps with HTML/CSS/JavaScript UI - NOT just JSON APIs.
 4. Make the UI beautiful, modern, and functional.
+5. Prefer first-pass success: use valid syntax, correct paths, and audit_command/run_command that run without errors so the build does not need self-healing.
 
 SCHEMA:
 {
@@ -138,6 +431,22 @@ package.json:
 - **Calculator**: Buttons grid, display, interactive calculations
 - **Game**: Canvas or DOM-based, score tracking, animations
 - **Form App**: Input validation, success/error messages, submissions
+
+=== DATA LAYER / ORM (CRITICAL FOR BIG WEBSITE PROTOTYPES) ===
+
+**Do NOT use traditional ORMs or database connections in generated code.**
+- No Prisma, Sequelize, TypeORM, SQLAlchemy, Django ORM, or any library that expects a long-lived DB connection.
+- Reason: The built app runs on Vercel serverless; no database is provisioned in the build pod or at deploy time. ORM code would fail at build or runtime (connection refused, timeout).
+- For prototypes (including "big" sites like feeds, dashboards, social UIs): use ONLY the patterns below so the build passes and deploys.
+
+**Allowed patterns for data persistence:**
+1. **localStorage / sessionStorage** – for client-side state (todos, preferences, simple auth).
+2. **In-memory in api/index.js** – serverless function can keep a small in-memory store per request; for demo only (no cross-request persistence unless you use a single global object, which is not durable).
+3. **External API (future)** – If you document "For production, plug in Supabase/PlanetScale via env" you may add a thin HTTP client that reads from an optional API URL; do NOT add DB connection strings or ORM in generated code.
+
+**For "big website" prototypes (e.g. LinkedIn-style, dashboard, social feed):**
+- Use the same rules: localStorage for user/session simulation, in-memory or localStorage for feed/list data in the prototype.
+- Keep the UI and layout rich; keep the data layer simple so the app builds, audits, and deploys. Real ORM and DB come when the user takes the repo to production.
 
 === CRUD OPERATIONS (For Apps Needing Data Storage) ===
 When user requests an app with login, user data, or persistent storage:
@@ -390,12 +699,15 @@ class Architect:
 
             return "".join(result)
 
-    def draft_blueprint(self, prompt: str) -> GantryManifest:
+    def draft_blueprint(self, prompt: str, design_target: str | None = None) -> GantryManifest:
         """
         Draft Fabrication Instructions from a voice memo.
 
+        V6.5: Now supports design_target for pixel-perfect cloning.
+
         Args:
             prompt: The user's voice memo / build request.
+            design_target: Optional famous app to clone (LINKEDIN, TWITTER, etc.)
 
         Returns:
             A validated GantryManifest ready for the Foundry.
@@ -403,7 +715,19 @@ class Architect:
         Raises:
             ArchitectError: If Claude fails or returns invalid JSON.
         """
+        # V6.5: Auto-detect design target if not provided
+        if not design_target:
+            design_target = detect_design_target(prompt)
+
         console.print(f"[cyan][ARCHITECT] Drafting blueprint: {prompt[:50]}...[/cyan]")
+        if design_target:
+            console.print(f"[cyan][ARCHITECT] Clone protocol: {design_target}[/cyan]")
+
+        # V6.5: Inject design theme into system prompt
+        system_prompt = SYSTEM_PROMPT
+        if design_target:
+            theme_prompt = get_theme_prompt(design_target)
+            system_prompt = SYSTEM_PROMPT + theme_prompt
 
         # Prepare request
         url = f"{self._endpoint}/model/{CLAUDE_MODEL_ID}/invoke"
@@ -417,7 +741,7 @@ class Architect:
         body = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 4096,
-            "system": SYSTEM_PROMPT,
+            "system": system_prompt,
             "messages": [{"role": "user", "content": prompt}],
         }
 

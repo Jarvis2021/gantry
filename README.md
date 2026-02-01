@@ -1,12 +1,10 @@
-# Gantry
+# <img src="assets/logo.png" width="48" height="48" alt="Gantry" /> Gantry
 
 > **The Headless Fleet Protocol: From Abstract Intent to Production Systems**
 
-[![CI](https://github.com/YOUR_USERNAME/gantry/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/gantry/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-async-009688.svg)](https://fastapi.tiangolo.com/)
-[![WebSocket](https://img.shields.io/badge/WebSocket-realtime-blue.svg)](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+[![Flask](https://img.shields.io/badge/Flask-V6.5%20Consultation-000.svg)](https://flask.palletsprojects.com/)
 
 **Gantry is the only open-source AI engineering platform that doesn't just generate code—it builds, tests, self-heals, deploys, and opens a PR for human review. All from a single voice command or chat message.**
 
@@ -14,15 +12,13 @@
 
 ## The Story Behind Gantry
 
-The idea for Gantry started long before it had a name. I spent months thinking about what it would mean to have a truly autonomous local agent—one that could take an abstract idea, turn it into working software, deploy it, and still leave me in control as the final reviewer.
+The vision for Gantry predates its name. I spent months architecting a solution for a singular problem: How do we build a truly autonomous agent that takes an idea from concept to deployment without removing the engineer from the driver's seat?
 
-I was deep in the architecture when Cloudflare released [OpenClaw](https://github.com/cloudflare/moltworker). Seeing another team execute on a similar vision was a wake-up call. Rather than slow down, I accelerated. The difference became clear: OpenClaw is an excellent conversational agent. Gantry is a software factory.
+When Cloudflare released [OpenClaw](https://github.com/cloudflare/moltworker), it wasn't a deterrent—it was a wake-up call. It clarified the market gap. While others were building excellent conversational assistants, we realized the industry didn't need more chat bots; it needed builders. OpenClaw talks. **Gantry ships.**
 
-OpenClaw talks. **Gantry ships.**
+What you see today is a production-grade system forged from that realization. Gantry operates as an isolated software factory—building in containers, running self-healing tests, and deploying to live URLs—all before handing you a clean Pull Request for approval.
 
-What you see here is the result of that acceleration—a production-grade system built with the lessons learned from studying the best in the industry, then going further. Gantry doesn't just generate code. It builds inside isolated containers, runs tests with self-healing, deploys to a live URL, and opens a Pull Request so you remain the approver.
-
-This is the AI Staff Engineer I wanted. Now it exists.
+I wanted an AI Staff Engineer. I built Gantry.
 
 ---
 
@@ -54,23 +50,20 @@ This is the AI Staff Engineer I wanted. Now it exists.
 ```mermaid
 flowchart TB
     subgraph Input["Multi-Modal Input"]
-        WebUI["Web UI (Chat)"]
-        Voice["Voice/Siri (iOS Shortcuts)"]
+        WebUI["Web UI (Chat + optional image)"]
+        Voice["Voice / Siri (iOS Shortcuts)"]
         API["REST API (Automation)"]
-        WS["WebSocket (Real-time)"]
     end
 
-    subgraph Core["FastAPI Core (Async)"]
-        Auth["Argon2 Auth"]
-        Rate["Per-User Rate Limit"]
+    subgraph Core["Flask API (V6.5)"]
+        Auth["Session Auth"]
+        Rate["Rate Limit"]
         Guard["Content Guardrails"]
     end
 
-    subgraph Skills["Pluggable Skills"]
-        Consult["consult/"]
-        Draft["draft/"]
-        Heal["heal/"]
-        Custom["your-skill/"]
+    subgraph Consultation["Consultation Loop"]
+        Consultant["CTO Consultant"]
+        DB_Conv["conversation_history, design_target"]
     end
 
     subgraph Pipeline["Zero-Trust Pipeline"]
@@ -85,9 +78,11 @@ flowchart TB
         Evidence["Audit Trail (Black Box)"]
     end
 
-    Input --> Core --> Skills --> Pipeline --> Output
-    WS -.->|"Real-time Updates"| WebUI
+    Input --> Core --> Consultation --> Pipeline --> Output
+    DB_Conv -.-> Consultant
 ```
+
+Status updates: poll `GET /gantry/status/{id}` or `GET /gantry/consultation/{id}`.
 
 ---
 
@@ -104,8 +99,8 @@ flowchart TB
 | **Self-Healing** | No | No | Unknown | Yes |
 | **PR Workflow** | No | No | No | Yes |
 | **Audit Trail** | No | No | No | Yes |
-| **WebSocket Updates** | No | No | Unknown | Yes |
-| **Pluggable Skills** | No | No | No | Yes |
+| **Consultation Loop** | No | No | No | Yes (CTO propose → confirm → build) |
+| **Design Image Input** | No | No | No | Yes (saved and included in repo) |
 
 ### vs. OpenClaw/Moltworker (Cloudflare)
 
@@ -120,65 +115,81 @@ flowchart TB
 
 ---
 
-## Tech Stack (v2.0 Architecture)
+## Tech Stack (V6.5)
 
 | Layer | Technology | Why This Choice |
 |-------|------------|-----------------|
-| **API** | FastAPI (async) | Non-blocking, WebSocket native, OpenAPI docs |
-| **Real-time** | WebSocket | Instant build progress, no polling |
-| **Auth** | Argon2 | Memory-hard hashing (replaces SHA256) |
-| **Rate Limiting** | TokenBucket + IP | Per-user AND per-IP protection |
-| **AI** | AWS Bedrock (Claude 3.5) | Enterprise-grade, IAM auth |
-| **Prompts** | External `.md` files | Easy to customize, version controlled |
-| **Skills** | Pluggable folder | Add capabilities without code changes |
-| **Execution** | Docker (via proxy) | Zero-trust, least privilege |
+| **API** | Flask (primary) | V6.5 consultation loop; optional FastAPI for async/WebSocket |
+| **Consultation** | CTO Consultant (Bedrock) | Multi-turn: propose → question → confirm → build |
+| **Auth** | Session + password (SHA256) | Simple, env-based; optional Argon2 in FastAPI path |
+| **Rate Limiting** | Per-IP | Guardrails + rate limit |
+| **AI** | AWS Bedrock (Claude 3.5) | Architect + Consultant; IAM auth |
+| **Execution** | Docker (via proxy) | Zero-trust; `tcp://docker-proxy:2375` |
 | **Deploy** | Vercel CLI | Instant global CDN |
 | **Publish** | GitHub API | PR workflow, never push to main |
-| **Storage** | PostgreSQL | Mission history, connection pooled |
+| **Storage** | PostgreSQL | Missions, conversation_history, design_target |
 
 ---
 
 ## Two Ways to Build
 
-### Chat Mode (Interactive Consultation)
+### Consultation Mode (Primary: Voice / Chat)
+
+Multi-turn flow: CTO proposes a plan, asks questions, then builds when you confirm. Optional design image is saved and included in the built repo.
 
 ```
-You: "Build me a task management app"
+You: "Build me a task management app"  (optionally attach a design image)
 
-Gantry: "I can build that. Here is my plan:
-         - Task CRUD with priorities
-         - Due dates with calendar view  
-         - Dark mode toggle
-         - Local storage persistence
-         
-         Should I build a prototype with these features?"
+Gantry (CTO): "I can build that. Here is my plan:
+               - Task CRUD with priorities
+               - Due dates with calendar view
+               - Dark mode toggle
+               - Local storage persistence
+               Should I build a prototype with these features?"
 
-You: "Yes, add drag-and-drop reordering too"
+You: "Yes, proceed"
 
-Gantry: "Starting build. Watch the progress..."
+Gantry: "Clone protocol initiated." (202)
 
-[WebSocket] ARCHITECTING > VALIDATING > BUILDING > DEPLOYING...
-
-Gantry: "Live at https://task-app.vercel.app
-         PR opened for review"
+# Poll status: GET /gantry/status/{mission_id} or /gantry/consultation/{mission_id}
+# When status is DEPLOYED / SUCCESS:
+Gantry: Live at https://task-app.vercel.app — PR opened for review.
 ```
-
-### Voice Mode (One-Shot Command)
 
 ```bash
-# Via API
-curl -X POST http://localhost:5050/gantry/architect \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"voice_memo": "Build a calculator with dark mode"}'
+# Start or continue consultation
+curl -X POST http://localhost:5050/gantry/voice \
+  -H "Cookie: session=..." \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Build a LinkedIn-style feed", "deploy": true, "publish": true}'
 
-# Response in 90 seconds
-{
-  "status": "DEPLOYED",
-  "url": "https://calculator-abc.vercel.app",
-  "pr_url": "https://github.com/you/repo/pull/42",
-  "speech": "Calculator deployed. PR opened for review."
-}
+# Optional: attach design image (base64 + filename)
+# -d '{"message": "Build this layout", "image_base64": "...", "image_filename": "mockup.png"}'
 ```
+
+### Direct Build (Bypass Consultation)
+
+Single-shot build: no CTO loop. Use for automation or when the request is already precise.
+
+```bash
+curl -X POST http://localhost:5050/gantry/architect \
+  -H "Cookie: session=..." \
+  -H "Content-Type: application/json" \
+  -d '{"voice_memo": "Build a calculator with dark mode", "deploy": true, "publish": true}'
+
+# 202 { "mission_id": "...", "speech": "Gantry assumes control." }
+# Poll GET /gantry/status/{mission_id} or GET /gantry/latest for url and pr_url
+```
+
+---
+
+## Building Complex Apps & Big Website Prototypes
+
+Gantry generates **working prototypes** with a minimal data layer (localStorage + serverless API). **ORM and database connections are not supported in generated code** by design (no DB in the build or on Vercel). Big-website-style UIs are supported; for production you add DB + ORM after the fact.
+
+**To use Gantry for building complex apps, production-ready backends, or custom engagements:** reach out for subscription engagement. Contact the author to convert this critic into real business:
+
+**Pramod.Voola@gmail.com**
 
 ---
 
@@ -210,8 +221,9 @@ pip install -r requirements.txt
 # Start services
 docker-compose up -d
 
-# Run Gantry (FastAPI)
-python src/main_fastapi.py
+# Run Gantry (Flask — V6.5 default)
+python src/main.py
+# Optional: FastAPI + WebSocket — python src/main_fastapi.py
 ```
 
 ### 3. Open the Console
@@ -220,36 +232,40 @@ python src/main_fastapi.py
 open http://localhost:5050
 ```
 
-Auto-generated API docs at `http://localhost:5050/docs`
+For OpenAPI docs, run the optional FastAPI app: `python src/main_fastapi.py` then open `http://localhost:5050/docs`
+
+### Clear projects from the database
+
+- **From the UI**: Projects panel → **Clear all** (requires login). The list clears immediately; the DB is updated.
+- **From the CLI** (if UI clear fails or to verify): From project root, run:
+  ```bash
+  python scripts/clear_missions.py
+  ```
+  This deletes all rows from the `missions` table. Mission folders under `missions/` are kept for audit. Then refresh the browser or click **Refresh** in the Projects panel.
 
 ---
 
 ## API Reference
 
-### REST Endpoints
+### REST Endpoints (Flask — V6.5)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | Web UI (Chat + Dashboard) |
-| `/docs` | GET | OpenAPI documentation |
+| `/` | GET | Web UI (Chat + optional image, Dashboard) |
 | `/health` | GET | Health check |
-| `/gantry/auth` | POST | Authenticate, get token |
-| `/gantry/chat` | POST | Chat with Architect |
-| `/gantry/architect` | POST | Dispatch build mission |
-| `/gantry/status/{id}` | GET | Get mission status |
+| `/gantry/auth` | POST | Authenticate (password), session cookie |
+| `/gantry/auth/status` | GET | Check auth status |
+| `/gantry/voice` | POST | **Primary**: Consultation loop (message, optional image_base64, image_filename) |
+| `/gantry/consult` | POST | Same as voice; returns richer consultation state |
+| `/gantry/consultation/<id>` | GET | Get consultation state (conversation_history, pending_question, design_target) |
+| `/gantry/themes` | GET | List famous-app themes (clone mode) |
+| `/gantry/chat` | POST | Architectural Q&A (no build) |
+| `/gantry/architect` | POST | Direct build (voice_memo; bypasses consultation) |
+| `/gantry/status/<id>` | GET | Get mission status (url, pr_url, speech) |
+| `/gantry/latest` | GET | Latest mission status |
+| `/gantry/missions` | GET | List recent missions |
 
-### WebSocket (Real-time)
-
-```javascript
-// Connect to mission updates
-const ws = new WebSocket(`ws://localhost:5050/gantry/ws/${missionId}`);
-
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  // { type: "status", status: "BUILDING", message: "Running tests..." }
-  updateProgress(data.status, data.message);
-};
-```
+Status updates: poll `GET /gantry/status/{id}` or `GET /gantry/consultation/{id}`. For real-time updates, use the optional FastAPI app (`src/main_fastapi.py`) and WebSocket `/gantry/ws/{id}`.
 
 ---
 
@@ -258,25 +274,22 @@ ws.onmessage = (event) => {
 ```
 gantry/
 ├── src/
-│   ├── main_fastapi.py      # FastAPI with WebSocket
+│   ├── main.py              # Flask API (V6.5 primary)
+│   ├── main_fastapi.py      # Optional: FastAPI + WebSocket
 │   ├── core/
-│   │   ├── architect.py     # AI brain
-│   │   ├── auth_v2.py       # Argon2 + TokenBucket
-│   │   ├── fleet_v2.py      # Orchestrator (split functions)
-│   │   ├── foundry.py       # Docker execution
-│   │   ├── policy.py        # Security gate
-│   │   ├── deployer.py      # Vercel deployment
-│   │   └── publisher.py     # GitHub PR
-│   ├── skills/              # Pluggable capabilities
-│   │   ├── __init__.py      # Skill registry
-│   │   └── consult/         # Example skill
+│   │   ├── architect.py     # AI Architect + FAMOUS_THEMES (clone mode)
+│   │   ├── consultant.py   # CTO Consultant (consultation loop)
+│   │   ├── fleet.py        # Fleet Manager (orchestrator)
+│   │   ├── auth.py         # Session auth, rate limit, guardrails
+│   │   ├── db.py           # Missions, conversation_history, design_target
+│   │   ├── foundry.py      # Docker build; injects design-reference image
+│   │   ├── policy.py       # Security gate
+│   │   ├── deployer.py     # Vercel deployment
+│   │   └── publisher.py    # GitHub PR
+│   ├── skills/             # Optional: pluggable skills (FastAPI path)
 │   └── domain/
-│       └── models.py        # Pydantic schemas
-├── prompts/                 # External AI prompts
-│   ├── system.md
-│   ├── consult.md
-│   └── heal.md
-└── missions/                # Audit evidence
+│       └── models.py       # Pydantic schemas
+└── missions/                # Audit evidence; design-reference images
 ```
 
 ---
@@ -288,14 +301,11 @@ Gantry maintains enterprise-grade code quality:
 | Metric | Standard | Gantry |
 |--------|----------|--------|
 | Max function length | 50 lines | All functions under 50 lines |
-| Password hashing | Argon2/bcrypt | Argon2 |
-| Rate limiting | Per-user | TokenBucket + IP |
-| Real-time updates | WebSocket | Native WebSocket |
-| API documentation | OpenAPI | Auto-generated |
-| Prompt management | External | `prompts/*.md` |
-| Skills extensibility | Plugin system | `skills/` folder |
-| Type hints | 100% | All public APIs |
-| Async support | Native | FastAPI async |
+| Auth | Session + password | SHA256 env hash (optional Argon2 in FastAPI path) |
+| Rate limiting | Per-IP | Rate limit + guardrails |
+| Status updates | Polling or WebSocket | Poll `/gantry/status` or `/gantry/consultation`; optional WebSocket via FastAPI |
+| Type hints | 100% | Pydantic + type hints |
+| Consultation | Multi-turn | CTO Consultant (V6.5) |
 
 ---
 
@@ -303,20 +313,20 @@ Gantry maintains enterprise-grade code quality:
 
 ```
 +-------------------------------------------------------------+
-|                    CLOUDFLARE EDGE                           |
+|                    CLOUDFLARE EDGE (optional)                |
 |                 (DDoS, WAF, Rate Limit)                      |
 +-------------------------------------------------------------+
-|                 FASTAPI (Async, Non-blocking)                |
+|                 FLASK API (V6.5)                              |
 |    +--------------+--------------+--------------+           |
-|    | Argon2 Auth  | TokenBucket  |  Guardrails  |           |
-|    | (memory-hard)| (per-user)   |  (content)   |           |
+|    | Session Auth | Rate Limit   |  Guardrails  |           |
+|    | (password)   | (per-IP)     |  (content)   |           |
 |    +--------------+--------------+--------------+           |
 +-------------------------------------------------------------+
 |                     POLICY GATE                              |
 |           (Forbidden patterns, stack whitelist)              |
 +-------------------------------------------------------------+
-|                 DOCKER SOCKET PROXY                          |
-|              (Least privilege, no dangerous ops)             |
+|                 DOCKER PROXY (tcp://docker-proxy:2375)       |
+|              (Least privilege, no socket access)             |
 +-------------------------------------------------------------+
 |                    PROJECT POD                               |
 |       (Isolated container, 512MB limit, 180s timeout)        |
@@ -358,12 +368,11 @@ Skills are auto-loaded at startup. No code changes to core required.
 
 ## Roadmap
 
-- [x] FastAPI async architecture
-- [x] WebSocket real-time updates
-- [x] Argon2 password hashing
-- [x] Per-user rate limiting
-- [x] Externalized prompts
-- [x] Pluggable skills system
+- [x] V6.5 consultation loop (CTO Consultant)
+- [x] Design image capture and inclusion in repo
+- [x] Famous-app themes (clone mode)
+- [x] Flask primary API; optional FastAPI + WebSocket
+- [x] Self-healing build (up to 3 retries)
 - [ ] Multi-channel (Slack, Discord, Telegram)
 - [ ] OAuth/OIDC authentication
 - [ ] Redis session store
