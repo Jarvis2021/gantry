@@ -1158,6 +1158,13 @@ The previous build FAILED. Your job is to analyze and FIX it.
 - Tests run in Node.js, cannot extract from browser
 - Define functions BEFORE calling them in tests
 
+**TEST_FUNCTION_STUB_ERROR (assertion fails because function doesn't modify state):**
+- THIS IS THE #1 FAILURE CAUSE
+- NEVER create empty function stubs in tests
+- WRONG: function searchWeather() { /* would update DOM */ }
+- RIGHT: function searchWeather() { weatherInfo.style.display = 'block'; weatherInfo.innerHTML = '...'; }
+- If the test asserts something, the function MUST actually do it!
+
 **SYNTAX_ERROR:**
 - Check the EXACT line number in error
 - Look for: missing brackets, quotes, semicolons, trailing commas
@@ -1200,11 +1207,23 @@ global.localStorage = {
   clear() { this._data = {}; }
 };
 
-// DUPLICATE ALL FUNCTIONS FROM HTML HERE
-let state = [];
-function myFunction() {
-  // Copy EXACT code from HTML <script>
+// DUPLICATE ALL FUNCTIONS FROM HTML HERE - FULL IMPLEMENTATION!
+// WRONG: function search() { /* would update display */ }  <-- NEVER DO THIS
+// RIGHT: Copy the EXACT implementation that modifies DOM/state
+
+let items = [];
+function addItem() {
+  const input = document.getElementById('input');
+  if (input.value.trim()) {
+    items.push(input.value.trim());  // Actually modify state
+    input.value = '';
+    render();
+  }
 }
+function render() {
+  document.getElementById('list').innerHTML = items.map(i => `<li>${i}</li>`).join('');
+}
+// If HTML has searchWeather(), copy the FULL implementation that sets display='block'
 
 // RESET before each test
 function resetState() {
@@ -1720,10 +1739,14 @@ Generate a GantryManifest that replicates this design with 95% accuracy. Include
 CRITICAL REQUIREMENTS FOR FIX:
 1. Fix the SPECIFIC error shown above
 2. Return ALL files (not just changed ones)
-3. Ensure tests pass - duplicate functions in test file, use stateful mocks
+3. TESTS MUST PASS - this is usually why builds fail:
+   - Functions in test file must have FULL implementation (not empty stubs)
+   - If test asserts "display === 'block'", the function MUST set display to 'block'
+   - NEVER write empty stubs like: function foo() followed by a comment
+   - ALWAYS write the full implementation that modifies the DOM/state
 4. If DOM error: only use getElementById (NOT querySelector)
 5. If import error: check file paths and module format
-6. If syntax error: fix at the exact line indicated
+6. If assertion error: the function being tested isn't actually doing what the test expects
 
 Analyze the error and return a CORRECTED GantryManifest that fixes this issue."""
 
