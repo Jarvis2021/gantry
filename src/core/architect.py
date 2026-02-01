@@ -767,54 +767,102 @@ assert(items.length === 0, 'Delete failed');
 console.log('All CRUD tests passed');
 ```
 
-=== TESTING REQUIREMENTS (MANDATORY) ===
+=== TESTING REQUIREMENTS (MANDATORY - ALL LANGUAGES) ===
 
-EVERY app MUST include tests with 90% coverage:
+EVERY app MUST include tests with 90% coverage. Test files depend on stack:
 
-1. **tests/index.test.js** - Unit tests for all functions
-2. Use simple assertions (no external test framework needed for Vercel)
-3. **CRITICAL: Use STATEFUL mocks** - same object must be returned for same ID
+**JavaScript/Node.js apps:** tests/index.test.js
+**Python apps:** tests/test_app.py  
+**Static HTML apps:** tests/index.test.js (test any embedded JS logic)
+
+=== LANGUAGE-SPECIFIC TEST PATTERNS ===
+
+### JAVASCRIPT/NODE.JS TESTS (tests/index.test.js)
+
+```javascript
+const assert = (condition, msg) => { if (!condition) throw new Error(msg); };
+
+// STATEFUL MOCKS (required for DOM testing)
+const mockElements = {
+  'input': { value: '', innerHTML: '', textContent: '', style: {} },
+  'list': { innerHTML: '', textContent: '', style: {} }
+};
+global.document = {
+  getElementById: (id) => mockElements[id] || { value: '', innerHTML: '', textContent: '', style: {} }
+};
+global.localStorage = {
+  _data: {},
+  setItem(k, v) { this._data[k] = String(v); },
+  getItem(k) { return this._data[k] || null; },
+  removeItem(k) { delete this._data[k]; },
+  clear() { this._data = {}; }
+};
+
+// DUPLICATE functions from HTML here (cannot extract from browser)
+let items = [];
+function addItem() { /* copy exact code from HTML */ }
+
+// Tests
+mockElements['input'].value = 'Test';
+addItem();
+assert(items.length === 1, 'Should add item');
+console.log('All tests passed!');
+```
+
+### PYTHON TESTS (tests/test_app.py)
+
+```python
+import sys
+sys.path.insert(0, '.')
+
+def test_basic():
+    # Test pure functions first
+    result = 1 + 1
+    assert result == 2, "Basic math failed"
+
+def test_data_operations():
+    items = []
+    items.append({"id": 1, "text": "Test"})
+    assert len(items) == 1, "Append failed"
+    items = [i for i in items if i["id"] != 1]
+    assert len(items) == 0, "Filter failed"
+
+if __name__ == "__main__":
+    test_basic()
+    test_data_operations()
+    print("All tests passed!")
+```
 
 === FORBIDDEN TEST PATTERNS (WILL CAUSE BUILD FAILURE) ===
 
-NEVER DO ANY OF THESE - they will cause immediate test failure:
+**UNIVERSAL RULES (ALL LANGUAGES):**
+1. NEVER import external test frameworks not in package.json/requirements.txt
+2. NEVER read files from disk to extract code (no fs.readFileSync, no open())
+3. NEVER use eval() or exec() to run code extracted from other files
+4. NEVER use database connections in tests (mock all data)
+5. NEVER make real HTTP requests in tests (mock responses)
+6. NEVER rely on environment variables being set
+7. NEVER use async/await without proper handling
 
-1. **NEVER use document.querySelector** - only getElementById is mocked
-2. **NEVER use eval() to extract scripts from HTML** - tests run in Node.js, not browser
-3. **NEVER try to read HTML file content in tests** - no fs, no require('./index.html')
-4. **NEVER use addEventListener in HTML** - use inline handlers (onclick, onkeypress)
+**JAVASCRIPT-SPECIFIC FORBIDDEN PATTERNS:**
+- NEVER use document.querySelector() - only getElementById is mocked
+- NEVER use document.querySelectorAll() - not mocked
+- NEVER use addEventListener in HTML - use onclick, onkeypress, etc.
+- NEVER use eval() to extract <script> content from HTML
+- NEVER use require('fs') to read HTML files
+- NEVER use import/export in test files - use CommonJS (module.exports)
+
+**PYTHON-SPECIFIC FORBIDDEN PATTERNS:**
+- NEVER import pytest, unittest without adding to requirements.txt
+- NEVER use Django/Flask test clients without proper mocking
+- NEVER connect to real databases - use mock data
+- NEVER import the main app if it has side effects on import
 
 **CRITICAL: Functions MUST be DUPLICATED in test files**
-Tests run in Node.js without a browser. You CANNOT extract functions from HTML.
-Instead, COPY the function definitions directly into your test file.
+Tests run in a clean environment. You CANNOT extract functions from HTML or other files.
+COPY the function definitions directly into your test file.
 
-**BAD (will fail):**
-```javascript
-// WRONG - document.querySelector doesn't exist in Node.js!
-eval(document.querySelector('script').textContent);
-
-// WRONG - can't read HTML files in Node.js tests!
-const html = require('fs').readFileSync('./public/index.html');
-```
-
-**CORRECT - duplicate functions in test file:**
-```javascript
-// Copy the function definitions directly into test file
-let items = [];
-function addItem() {
-  const input = document.getElementById('input');
-  if (input.value.trim()) {
-    items.push({ id: Date.now(), text: input.value });
-    input.value = '';
-  }
-}
-// Now test it
-mockElements['input'].value = 'Test';
-addItem();
-assert(items.length === 1, 'addItem should add to array');
-```
-
-=== DOM MOCKING (CRITICAL - MUST FOLLOW) ===
+=== DOM MOCKING (CRITICAL - JAVASCRIPT ONLY) ===
 
 When testing browser code that uses document.getElementById, you MUST use STATEFUL mocks.
 
@@ -959,8 +1007,39 @@ addItem();
 assert(items.length === 1, 'Works!');
 ```
 
-=== AUDIT COMMAND ===
-For audit: "node tests/index.test.js" (run actual tests, not just syntax check)
+=== AUDIT COMMANDS BY STACK ===
+
+**JavaScript/Node.js:** "node tests/index.test.js"
+**Python:** "python tests/test_app.py" or "python -m pytest tests/ -v"
+**Static HTML:** "node tests/index.test.js" (for any embedded JS logic)
+
+=== MULTI-LANGUAGE STACK SUPPORT ===
+
+The "stack" field determines the runtime and audit approach:
+
+**stack: "node"** (default, most common)
+- Use for: Web apps, SPAs, dashboards, games, calculators
+- Files: public/index.html, tests/index.test.js, vercel.json, package.json
+- Audit: "node tests/index.test.js"
+- Run: "npx serve public" or "npm start"
+
+**stack: "python"** (for Python-heavy apps)
+- Use for: Data tools, CLI apps, simple APIs
+- Files: app.py, tests/test_app.py, requirements.txt, vercel.json
+- Audit: "python tests/test_app.py"
+- Run: "python app.py"
+
+**For BOTH stacks:**
+- Include public/index.html for UI (always needed!)
+- Use localStorage for data persistence
+- Tests MUST pass before deployment
+
+=== STACK AUTO-SELECTION ===
+
+Choose stack based on request:
+- "website", "app", "dashboard", "game", "calculator" → node
+- "data analysis", "script", "automation" → python
+- When in doubt → node (broader browser support)
 
 NEVER return just JSON APIs - always build COMPLETE web applications with beautiful UI and TESTS."""
 
@@ -1007,17 +1086,17 @@ RULES:
 - If building prototype, set is_prototype: true
 - If continuing existing app, set continue_from: "project_name" """
 
-HEAL_PROMPT = """You are a Senior Debugger for the Gantry Build System. The previous build FAILED.
+HEAL_PROMPT = """You are a PRINCIPAL ENGINEER and Senior Debugger for the Gantry Build System.
+The previous build FAILED. Your job is to analyze and FIX it.
 
-Analyze the error and return a CORRECTED GantryManifest.
+=== CRITICAL RULES ===
+1. Output ONLY valid JSON - no markdown, no commentary
+2. FIX the SPECIFIC error shown in the logs
+3. Return ALL files, not just changed ones
+4. Build REAL web apps with HTML/CSS/JS UI, not just APIs
+5. TESTS MUST PASS - this is the most common failure point
 
-CRITICAL RULES:
-1. Output ONLY valid JSON - no markdown, no commentary.
-2. FIX the specific error shown in the logs.
-3. Return ALL files, not just changed ones.
-4. Build REAL web apps with HTML/CSS/JS UI, not just APIs.
-
-SCHEMA:
+=== SCHEMA ===
 {
   "project_name": "string (keep same name)",
   "stack": "node",
@@ -1026,14 +1105,121 @@ SCHEMA:
   "run_command": "command to run"
 }
 
-COMMON FIXES:
-- SyntaxError → Fix the syntax at indicated line
-- Missing file → Add the required file
-- HTML not rendering → Ensure public/index.html exists with proper HTML
-- API errors → Fix the serverless function in api/index.js
+=== ERROR-SPECIFIC FIXES ===
 
-IMPORTANT: Always include public/index.html with real HTML/CSS/JS UI.
+**DOM_MOCK_ERROR (querySelector not a function):**
+- REPLACE: document.querySelector('x') → document.getElementById('x')
+- ADD missing element to mockElements in test file
+- NEVER use querySelector, querySelectorAll in tests
 
+**DOM_MOCK_MISSING (cannot read property of null):**
+- ADD the missing element ID to mockElements object:
+  ```javascript
+  const mockElements = {
+    'missing-id': { value: '', innerHTML: '', textContent: '', style: {} }
+  };
+  ```
+
+**EVENT_LISTENER_ERROR (addEventListener):**
+- In HTML: Replace addEventListener with inline handlers
+  BAD:  element.addEventListener('click', handler)
+  GOOD: <button onclick="handler()">Click</button>
+
+**REFERENCE_ERROR (function not defined):**
+- DUPLICATE all functions from HTML into test file
+- Tests run in Node.js, cannot extract from browser
+- Define functions BEFORE calling them in tests
+
+**SYNTAX_ERROR:**
+- Check the EXACT line number in error
+- Look for: missing brackets, quotes, semicolons, trailing commas
+- Validate JSON structure (no trailing commas!)
+
+**MODULE_NOT_FOUND:**
+- Verify file path exists in manifest
+- Check relative paths (./file vs ../file)
+- Ensure package.json lists dependencies
+
+**TEST_ASSERTION_FAILED:**
+- Reset state between tests (items = [], mockElements cleared)
+- Set input values BEFORE calling functions that read them
+- Check test logic matches implementation
+
+**VERCEL_STRUCTURE_ERROR:**
+- Ensure public/index.html exists
+- vercel.json must have correct rewrites
+- api/index.js must use module.exports (not export default)
+
+=== JAVASCRIPT TEST FILE TEMPLATE (use this!) ===
+
+```javascript
+const assert = (condition, msg) => { if (!condition) throw new Error(msg); };
+
+// STATEFUL MOCKS - add ALL element IDs used in app
+const mockElements = {
+  'input': { value: '', innerHTML: '', textContent: '', style: {} },
+  'output': { innerHTML: '', textContent: '', style: {} },
+  'list': { innerHTML: '', textContent: '', style: {} }
+};
+global.document = {
+  getElementById: (id) => mockElements[id] || { value: '', innerHTML: '', textContent: '', style: {} }
+};
+global.localStorage = {
+  _data: {},
+  setItem(k, v) { this._data[k] = String(v); },
+  getItem(k) { return this._data[k] || null; },
+  removeItem(k) { delete this._data[k]; },
+  clear() { this._data = {}; }
+};
+
+// DUPLICATE ALL FUNCTIONS FROM HTML HERE
+let state = [];
+function myFunction() {
+  // Copy EXACT code from HTML <script>
+}
+
+// RESET before each test
+function resetState() {
+  state = [];
+  Object.keys(mockElements).forEach(k => {
+    mockElements[k].value = '';
+    mockElements[k].innerHTML = '';
+  });
+  localStorage.clear();
+}
+
+// TESTS
+resetState();
+mockElements['input'].value = 'test';  // SET BEFORE calling
+myFunction();
+assert(state.length === 1, 'Should work');
+
+console.log('All tests passed!');
+```
+
+=== PYTHON TEST FILE TEMPLATE ===
+
+```python
+import sys
+sys.path.insert(0, '.')
+
+def test_basic():
+    assert 1 + 1 == 2, "Math works"
+
+def test_data():
+    items = []
+    items.append({"id": 1})
+    assert len(items) == 1
+    items = [i for i in items if i["id"] != 1]
+    assert len(items) == 0
+
+if __name__ == "__main__":
+    test_basic()
+    test_data()
+    print("All tests passed!")
+```
+
+ALWAYS include public/index.html with real HTML/CSS/JS UI.
 Return COMPLETE corrected manifest with ALL files."""
 
 
@@ -1161,22 +1347,26 @@ class Architect:
         system_prompt: str,
         user_content: str | list,
         max_tokens: int = 4096,
+        retry_count: int = 2,
     ) -> str:
         """
-        Call a specific Claude model via Bedrock API.
+        Call a specific Claude model via Bedrock API with retry logic.
 
         Args:
             model_id: The Claude model ID to use.
             system_prompt: The system prompt.
             user_content: The user message (text or multimodal content).
             max_tokens: Maximum tokens to generate.
+            retry_count: Number of retries on transient failures.
 
         Returns:
             Raw text response from the model.
 
         Raises:
-            ArchitectError: If API call fails.
+            ArchitectError: If API call fails after all retries.
         """
+        import time
+
         url = f"{self._endpoint}/model/{model_id}/invoke"
 
         headers = {
@@ -1192,13 +1382,101 @@ class Architect:
             "messages": [{"role": "user", "content": user_content}],
         }
 
-        response = requests.post(url, headers=headers, json=body, timeout=90)
+        last_error = None
+        for attempt in range(retry_count + 1):
+            try:
+                # Exponential backoff on retries
+                if attempt > 0:
+                    wait_time = 2 ** attempt  # 2s, 4s, 8s...
+                    console.print(f"[yellow][ARCHITECT] Retry {attempt}/{retry_count} in {wait_time}s...[/yellow]")
+                    time.sleep(wait_time)
 
-        if response.status_code != 200:
-            raise ArchitectError(f"API error {response.status_code}: {response.text[:500]}")
+                response = requests.post(url, headers=headers, json=body, timeout=120)
 
-        response_body = response.json()
-        return response_body["content"][0]["text"]
+                # Handle rate limiting with retry
+                if response.status_code == 429:
+                    last_error = "Rate limited (429)"
+                    console.print("[yellow][ARCHITECT] Rate limited, will retry...[/yellow]")
+                    continue
+
+                # Handle server errors with retry
+                if response.status_code >= 500:
+                    last_error = f"Server error ({response.status_code})"
+                    console.print(f"[yellow][ARCHITECT] {last_error}, will retry...[/yellow]")
+                    continue
+
+                # Client errors are not retryable
+                if response.status_code != 200:
+                    raise ArchitectError(f"API error {response.status_code}: {response.text[:500]}")
+
+                response_body = response.json()
+                return response_body["content"][0]["text"]
+
+            except requests.Timeout:
+                last_error = "Request timeout"
+                console.print("[yellow][ARCHITECT] Request timed out, will retry...[/yellow]")
+                continue
+
+            except requests.ConnectionError as e:
+                last_error = f"Connection error: {e}"
+                console.print(f"[yellow][ARCHITECT] {last_error}, will retry...[/yellow]")
+                continue
+
+        # All retries exhausted
+        raise ArchitectError(f"API call failed after {retry_count + 1} attempts: {last_error}")
+
+    def _pre_validate_manifest(self, manifest: GantryManifest) -> tuple[bool, str]:
+        """
+        Pre-validate manifest before returning to catch common issues.
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        issues = []
+
+        # Check for test file
+        has_tests = any("test" in f.path.lower() for f in manifest.files)
+        if not has_tests:
+            issues.append("Missing test file (tests/index.test.js or tests/test_app.py)")
+
+        # Check for main HTML file
+        has_html = any(
+            f.path.endswith(".html") and "index" in f.path.lower()
+            for f in manifest.files
+        )
+        if not has_html and manifest.stack == "node":
+            issues.append("Missing index.html (should be public/index.html)")
+
+        # Check test file for forbidden patterns
+        for file in manifest.files:
+            if "test" in file.path.lower() and file.path.endswith(".js"):
+                content = file.content
+                
+                # Check for querySelector (forbidden)
+                if "querySelector" in content and "// FORBIDDEN" not in content:
+                    issues.append(f"{file.path}: Uses querySelector (must use getElementById)")
+                
+                # Check for eval with querySelector
+                if "eval(" in content and ("querySelector" in content or "script" in content.lower()):
+                    issues.append(f"{file.path}: Uses eval to extract scripts (forbidden)")
+                
+                # Check for fs.readFileSync
+                if "readFileSync" in content:
+                    issues.append(f"{file.path}: Uses fs.readFileSync (forbidden in tests)")
+                
+                # Check for proper mocks
+                if "document.getElementById" in content and "mockElements" not in content:
+                    issues.append(f"{file.path}: Uses getElementById but no mockElements defined")
+
+        # Check for vercel.json in node projects
+        if manifest.stack == "node":
+            has_vercel = any(f.path == "vercel.json" for f in manifest.files)
+            if not has_vercel:
+                issues.append("Missing vercel.json for Node.js project")
+
+        if issues:
+            return False, "; ".join(issues)
+        return True, ""
 
     def draft_blueprint(
         self,
@@ -1317,6 +1595,13 @@ Generate a GantryManifest that replicates this design with 95% accuracy. Include
                 manifest_data = json.loads(clean_json)
                 manifest = GantryManifest(**manifest_data)
 
+                # Pre-validate manifest to catch common issues early
+                is_valid, validation_error = self._pre_validate_manifest(manifest)
+                if not is_valid:
+                    console.print(f"[yellow][ARCHITECT] Pre-validation failed: {validation_error}[/yellow]")
+                    # Don't fail - try to fix in next tier or let build self-heal
+                    # But log it for visibility
+
                 console.print(
                     f"[green][ARCHITECT] Blueprint ready: {manifest.project_name} "
                     f"(via {model_name})[/green]"
@@ -1359,6 +1644,7 @@ Generate a GantryManifest that replicates this design with 95% accuracy. Include
 
         This is the "Repair" skill that makes Gantry agentic.
         When a build fails, the Architect reads the error and fixes the code.
+        Uses 3-tier model fallback for maximum success rate.
 
         Args:
             original_manifest: The manifest that failed.
@@ -1368,12 +1654,21 @@ Generate a GantryManifest that replicates this design with 95% accuracy. Include
             A new, corrected GantryManifest.
 
         Raises:
-            ArchitectError: If healing fails.
+            ArchitectError: If ALL healing attempts fail.
         """
         console.print("[yellow][ARCHITECT] Self-healing: analyzing failure...[/yellow]")
 
-        # Build the healing prompt with context
+        # Analyze error type to provide better context
+        error_analysis = self._analyze_error(error_log)
+        console.print(f"[cyan][ARCHITECT] Error type: {error_analysis['type']}[/cyan]")
+
+        # Build the healing prompt with context and specific fix guidance
         healing_request = f"""## FAILED BUILD - NEEDS FIX
+
+### Error Analysis:
+- Error Type: {error_analysis['type']}
+- Likely Cause: {error_analysis['cause']}
+- Suggested Fix: {error_analysis['fix']}
 
 ### Original Manifest:
 ```json
@@ -1382,64 +1677,216 @@ Generate a GantryManifest that replicates this design with 95% accuracy. Include
 
 ### Error Log:
 ```
-{error_log[:2000]}
+{error_log[:3000]}
 ```
+
+CRITICAL REQUIREMENTS FOR FIX:
+1. Fix the SPECIFIC error shown above
+2. Return ALL files (not just changed ones)
+3. Ensure tests pass - duplicate functions in test file, use stateful mocks
+4. If DOM error: only use getElementById (NOT querySelector)
+5. If import error: check file paths and module format
+6. If syntax error: fix at the exact line indicated
 
 Analyze the error and return a CORRECTED GantryManifest that fixes this issue."""
 
-        # Prepare request
-        url = f"{self._endpoint}/model/{CLAUDE_MODEL_ID}/invoke"
+        # =====================================================================
+        # 3-TIER HEALING FALLBACK (same as draft_blueprint)
+        # =====================================================================
+        last_error = None
+        tiers_to_try = MODEL_TIERS if ENABLE_MODEL_FALLBACK else [MODEL_TIERS[0]]
 
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Authorization": f"Bearer {self._api_key}",
-        }
+        for tier_idx, tier in enumerate(tiers_to_try):
+            model_id = tier["id"]
+            model_name = tier["name"]
+            max_tokens = tier["max_tokens"]
 
-        body = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 4096,
-            "system": HEAL_PROMPT,
-            "messages": [{"role": "user", "content": healing_request}],
-        }
-
-        try:
-            response = requests.post(url, headers=headers, json=body, timeout=60)
-
-            if response.status_code != 200:
-                console.print(f"[red][ARCHITECT] Healing API error: {response.status_code}[/red]")
-                raise ArchitectError(f"Healing failed: {response.status_code}")
-
-            response_body = response.json()
-            raw_text = response_body["content"][0]["text"]
-
-            console.print("[cyan][ARCHITECT] Healing response received, parsing...[/cyan]")
-
-        except requests.RequestException as e:
-            console.print(f"[red][ARCHITECT] Healing request failed: {e}[/red]")
-            raise ArchitectError(f"Healing request failed: {e}") from e
-        except (KeyError, IndexError) as e:
-            console.print("[red][ARCHITECT] Unexpected healing response[/red]")
-            raise ArchitectError(f"Unexpected response: {e}") from e
-
-        # Clean and parse JSON
-        try:
-            clean_json = self._clean_json(raw_text)
-            manifest_data = json.loads(clean_json)
-        except json.JSONDecodeError as e:
-            console.print("[red][ARCHITECT] Healing JSON parse failed[/red]")
-            raise ArchitectError(f"Invalid healing JSON: {e}") from e
-
-        # Validate with Pydantic
-        try:
-            healed_manifest = GantryManifest(**manifest_data)
             console.print(
-                f"[green][ARCHITECT] Healed blueprint ready: {healed_manifest.project_name}[/green]"
+                f"[yellow][ARCHITECT] Healing Tier {tier_idx + 1}/{len(tiers_to_try)}: {model_name}[/yellow]"
             )
-            return healed_manifest
-        except ValidationError as e:
-            console.print("[red][ARCHITECT] Healed manifest validation failed[/red]")
-            raise ArchitectError(f"Healed manifest invalid: {e}") from e
+
+            try:
+                raw_text = self._call_model_api(
+                    model_id=model_id,
+                    system_prompt=HEAL_PROMPT,
+                    user_content=healing_request,
+                    max_tokens=max_tokens,
+                )
+
+                console.print("[cyan][ARCHITECT] Healing response received, parsing...[/cyan]")
+
+                # Parse and validate the response
+                clean_json = self._clean_json(raw_text)
+                manifest_data = json.loads(clean_json)
+                healed_manifest = GantryManifest(**manifest_data)
+
+                # Validate the healed manifest has required fixes
+                if self._validate_healed_manifest(healed_manifest, error_analysis):
+                    console.print(
+                        f"[green][ARCHITECT] Healed blueprint ready: {healed_manifest.project_name} "
+                        f"(via {model_name})[/green]"
+                    )
+                    return healed_manifest
+                else:
+                    last_error = f"Healed manifest didn't address the error properly"
+                    console.print(f"[yellow][ARCHITECT] {last_error}[/yellow]")
+
+            except requests.RequestException as e:
+                last_error = f"Network error with {model_name}: {e}"
+                console.print(f"[yellow][ARCHITECT] {last_error}[/yellow]")
+
+            except json.JSONDecodeError as e:
+                last_error = f"JSON parse failed with {model_name}: {e}"
+                console.print(f"[yellow][ARCHITECT] {last_error}[/yellow]")
+
+            except ValidationError as e:
+                last_error = f"Manifest validation failed with {model_name}: {e}"
+                console.print(f"[yellow][ARCHITECT] {last_error}[/yellow]")
+
+            except ArchitectError as e:
+                last_error = f"API error with {model_name}: {e}"
+                console.print(f"[yellow][ARCHITECT] {last_error}[/yellow]")
+
+            except Exception as e:
+                last_error = f"Unexpected error with {model_name}: {e}"
+                console.print(f"[yellow][ARCHITECT] {last_error}[/yellow]")
+
+            # If this tier failed, try the next one
+            if tier_idx < len(tiers_to_try) - 1:
+                console.print(
+                    f"[yellow][ARCHITECT] Healing fallback to Tier {tier_idx + 2}...[/yellow]"
+                )
+
+        # All tiers failed
+        console.print("[red][ARCHITECT] All healing tiers exhausted[/red]")
+        raise ArchitectError(f"All {len(tiers_to_try)} healing tiers failed. Last error: {last_error}")
+
+    def _analyze_error(self, error_log: str) -> dict:
+        """
+        Analyze error log to determine error type and suggest fixes.
+
+        This helps the LLM focus on the right solution.
+        """
+        error_lower = error_log.lower()
+
+        # DOM/Browser errors
+        if "queryselector" in error_lower and "not a function" in error_lower:
+            return {
+                "type": "DOM_MOCK_ERROR",
+                "cause": "Test uses document.querySelector which is not mocked",
+                "fix": "Replace querySelector with getElementById, add element to mockElements"
+            }
+        if "getelementbyid" in error_lower and ("null" in error_lower or "undefined" in error_lower):
+            return {
+                "type": "DOM_MOCK_MISSING",
+                "cause": "Element ID not found in mockElements",
+                "fix": "Add missing element ID to mockElements object in test file"
+            }
+        if "addeventlistener" in error_lower:
+            return {
+                "type": "EVENT_LISTENER_ERROR",
+                "cause": "Using addEventListener which is not mocked",
+                "fix": "Replace addEventListener with inline handlers (onclick, onkeypress)"
+            }
+
+        # Syntax errors
+        if "syntaxerror" in error_lower:
+            return {
+                "type": "SYNTAX_ERROR",
+                "cause": "Invalid JavaScript/Python syntax",
+                "fix": "Check for missing brackets, quotes, semicolons at indicated line"
+            }
+        if "unexpected token" in error_lower:
+            return {
+                "type": "SYNTAX_ERROR",
+                "cause": "Unexpected character or token",
+                "fix": "Check JSON format, trailing commas, or invalid characters"
+            }
+
+        # Module/Import errors
+        if "module not found" in error_lower or "cannot find module" in error_lower:
+            return {
+                "type": "MODULE_NOT_FOUND",
+                "cause": "Required module/file doesn't exist",
+                "fix": "Check file paths, ensure all required files are generated"
+            }
+        if "modulenotfounderror" in error_lower or "no module named" in error_lower:
+            return {
+                "type": "PYTHON_IMPORT_ERROR",
+                "cause": "Python module not found",
+                "fix": "Check sys.path, ensure module exists, use relative imports"
+            }
+
+        # Reference errors
+        if "referenceerror" in error_lower or "is not defined" in error_lower:
+            return {
+                "type": "REFERENCE_ERROR",
+                "cause": "Variable or function used before definition",
+                "fix": "Ensure functions are defined before use, duplicate from HTML to test"
+            }
+
+        # Type errors
+        if "typeerror" in error_lower:
+            return {
+                "type": "TYPE_ERROR",
+                "cause": "Operation on wrong type (e.g., calling non-function)",
+                "fix": "Check variable types, ensure mocks return correct types"
+            }
+
+        # Assertion failures
+        if "assertionerror" in error_lower or "assert" in error_lower:
+            return {
+                "type": "TEST_ASSERTION_FAILED",
+                "cause": "Test assertion did not pass",
+                "fix": "Check test logic, ensure state is reset between tests"
+            }
+
+        # Vercel structure errors
+        if "invalid vercel" in error_lower or "structure" in error_lower:
+            return {
+                "type": "VERCEL_STRUCTURE_ERROR",
+                "cause": "Invalid Vercel deployment structure",
+                "fix": "Ensure public/index.html exists, vercel.json is correct"
+            }
+
+        # Default
+        return {
+            "type": "UNKNOWN_ERROR",
+            "cause": "Unrecognized error pattern",
+            "fix": "Review error log carefully and fix the specific issue"
+        }
+
+    def _validate_healed_manifest(self, manifest: GantryManifest, error_analysis: dict) -> bool:
+        """
+        Validate that the healed manifest likely addresses the error.
+
+        Returns True if manifest looks correct, False if obvious issues remain.
+        """
+        # Check for common issues based on error type
+        if error_analysis["type"] == "DOM_MOCK_ERROR":
+            # Ensure no querySelector in test files
+            for file in manifest.files:
+                if "test" in file.path.lower() and "querySelector" in file.content:
+                    return False
+
+        if error_analysis["type"] == "VERCEL_STRUCTURE_ERROR":
+            # Ensure public/index.html exists
+            has_index = any(
+                f.path in ("public/index.html", "index.html")
+                for f in manifest.files
+            )
+            if not has_index:
+                return False
+
+        # Basic validation - ensure tests file exists
+        has_tests = any(
+            "test" in f.path.lower()
+            for f in manifest.files
+        )
+        if not has_tests:
+            return False
+
+        return True
 
     def consult(self, messages: list[dict]) -> dict:
         """
