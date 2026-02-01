@@ -13,6 +13,7 @@
 
 import os
 import re
+import threading
 import time
 
 import requests
@@ -20,6 +21,9 @@ from docker.models.containers import Container
 from rich.console import Console
 
 console = Console()
+
+# Deployment timeout (Vercel CLI can hang on network issues)
+DEPLOY_TIMEOUT_SECONDS = 120
 
 
 class DeploymentError(Exception):
@@ -52,6 +56,61 @@ class Deployer:
     def is_configured(self) -> bool:
         """Check if Vercel deployment is available."""
         return bool(self._token)
+
+    def _exec_with_timeout(
+        self,
+        container: Container,
+        cmd: str,
+        workdir: str = "/workspace",
+        timeout: int = DEPLOY_TIMEOUT_SECONDS,
+    ) -> tuple[int, bytes]:
+        """
+        Execute command in container with timeout protection.
+
+        Prevents hanging Vercel CLI (e.g., network issues, auth prompts).
+
+        Args:
+            container: Docker container to execute in.
+            cmd: Shell command to run.
+            workdir: Working directory inside container.
+            timeout: Maximum seconds to wait.
+
+        Returns:
+            Tuple of (exit_code, output_bytes).
+
+        Raises:
+            DeploymentError: If command exceeds timeout.
+        """
+        result: dict = {"exit_code": -1, "output": b"", "error": None}
+
+        def _run():
+            try:
+                result["exit_code"], result["output"] = container.exec_run(
+                    cmd=["sh", "-c", cmd],
+                    workdir=workdir,
+                    environment={"VERCEL_TOKEN": self._token},
+                )
+            except Exception as e:
+                result["error"] = e
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+        thread.join(timeout=timeout)
+
+        if thread.is_alive():
+            console.print(
+                f"[red][DEPLOYER] Command timeout ({timeout}s) - deployment may be stuck[/red]"
+            )
+            try:
+                container.kill()
+            except Exception:
+                pass
+            raise DeploymentError(f"Deployment timed out after {timeout}s")
+
+        if result["error"]:
+            raise result["error"]
+
+        return result["exit_code"], result["output"]
 
     def _parse_vercel_url(self, output: str) -> str | None:
         """
@@ -114,10 +173,9 @@ class Deployer:
         # The --public flag makes deployment accessible without authentication
         deploy_cmd = f"vercel deploy --prod --yes --token {self._token} --name {safe_name} --public"
 
-        exit_code, output = container.exec_run(
-            cmd=["sh", "-c", deploy_cmd],
-            workdir="/workspace",
-            environment={"VERCEL_TOKEN": self._token},
+        # Use timeout-protected execution (Vercel CLI can hang on network issues)
+        exit_code, output = self._exec_with_timeout(
+            container, deploy_cmd, timeout=DEPLOY_TIMEOUT_SECONDS
         )
 
         output_str = output.decode("utf-8") if isinstance(output, bytes) else str(output)

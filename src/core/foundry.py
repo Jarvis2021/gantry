@@ -33,7 +33,10 @@ console = Console()
 
 # Configuration
 BUILD_TIMEOUT_SECONDS = 180  # Dead Man's Switch - 3 minutes
+EXEC_TIMEOUT_SECONDS = 120  # Per-command timeout (prevents hanging exec_run)
 MEMORY_LIMIT = "512m"  # Prevent memory leaks
+CPU_PERIOD = 100000  # CPU scheduling period (microseconds)
+CPU_QUOTA = 50000  # 50% of one CPU core (prevents runaway processes)
 MISSIONS_DIR = Path(__file__).parent.parent.parent / "missions"
 
 # Universal builder image (has Python, Node, Git, Vercel)
@@ -190,6 +193,66 @@ class Foundry:
             return BUILDER_IMAGE
         return STACK_IMAGES.get(stack, STACK_IMAGES[StackType.PYTHON])
 
+    def _exec_with_timeout(
+        self,
+        container: Container,
+        cmd: list[str] | str,
+        workdir: str = "/workspace",
+        timeout: int = EXEC_TIMEOUT_SECONDS,
+    ) -> tuple[int, bytes]:
+        """
+        Execute command in container with timeout protection.
+
+        Prevents hanging exec_run calls that block forever.
+        Uses a separate thread to run the command and joins with timeout.
+
+        Args:
+            container: Docker container to execute in.
+            cmd: Command to run (list or string for shell).
+            workdir: Working directory inside container.
+            timeout: Maximum seconds to wait (default: EXEC_TIMEOUT_SECONDS).
+
+        Returns:
+            Tuple of (exit_code, output_bytes).
+
+        Raises:
+            BuildTimeoutError: If command exceeds timeout.
+        """
+        result: dict = {"exit_code": -1, "output": b"", "error": None}
+
+        def _run():
+            try:
+                if isinstance(cmd, str):
+                    result["exit_code"], result["output"] = container.exec_run(
+                        cmd=["sh", "-c", cmd], workdir=workdir
+                    )
+                else:
+                    result["exit_code"], result["output"] = container.exec_run(
+                        cmd=cmd, workdir=workdir
+                    )
+            except Exception as e:
+                result["error"] = e
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+        thread.join(timeout=timeout)
+
+        if thread.is_alive():
+            # Command is hanging - kill container to unblock thread
+            console.print(f"[red][FOUNDRY] Command timeout ({timeout}s) - killing container[/red]")
+            try:
+                container.kill()
+            except Exception:
+                pass
+            raise BuildTimeoutError(
+                f"Command timed out after {timeout}s: {cmd[:100] if isinstance(cmd, str) else cmd}"
+            )
+
+        if result["error"]:
+            raise result["error"]
+
+        return result["exit_code"], result["output"]
+
     def _verify_serverless_structure(self, container: Container, manifest: GantryManifest) -> bool:
         """
         Verify the project has correct Vercel serverless structure.
@@ -244,7 +307,7 @@ class Foundry:
         else:
             return True
 
-        exit_code, output = container.exec_run(cmd=["sh", "-c", check_cmd], workdir="/workspace")
+        exit_code, output = self._exec_with_timeout(container, check_cmd, timeout=30)
 
         output_str = output.decode("utf-8") if isinstance(output, bytes) else str(output)
         console.print(f"[dim][FOUNDRY] Structure check: {output_str.strip()}[/dim]")
@@ -365,6 +428,8 @@ class Foundry:
                     auto_remove=False,
                     working_dir="/workspace",
                     mem_limit=MEMORY_LIMIT,
+                    cpu_period=CPU_PERIOD,
+                    cpu_quota=CPU_QUOTA,
                 )
             except APIError as e:
                 if "Conflict" in str(e):
@@ -382,6 +447,8 @@ class Foundry:
                         auto_remove=False,
                         working_dir="/workspace",
                         mem_limit=MEMORY_LIMIT,
+                        cpu_period=CPU_PERIOD,
+                        cpu_quota=CPU_QUOTA,
                     )
                 else:
                     raise
@@ -417,9 +484,8 @@ class Foundry:
                 console.print("[cyan][FOUNDRY] Installing Python dependencies...[/cyan]")
                 blackbox.log("DEPS_INSTALL_STARTED", "requirements.txt")
 
-                dep_exit, dep_output = container.exec_run(
-                    cmd=["sh", "-c", "pip install -r requirements.txt --quiet"],
-                    workdir="/workspace",
+                dep_exit, dep_output = self._exec_with_timeout(
+                    container, "pip install -r requirements.txt --quiet", timeout=90
                 )
 
                 if dep_exit != 0:
@@ -442,9 +508,8 @@ class Foundry:
                 console.print("[cyan][FOUNDRY] Installing Node dependencies...[/cyan]")
                 blackbox.log("DEPS_INSTALL_STARTED", "package.json")
 
-                dep_exit, dep_output = container.exec_run(
-                    cmd=["sh", "-c", "npm install --silent"],
-                    workdir="/workspace",
+                dep_exit, dep_output = self._exec_with_timeout(
+                    container, "npm install --silent", timeout=90
                 )
 
                 if dep_exit == 0:
@@ -454,13 +519,12 @@ class Foundry:
             if timeout_triggered.is_set():
                 raise BuildTimeoutError("Dead Man's Switch triggered")
 
-            # Run Critic (audit_command)
+            # Run Critic (audit_command) with timeout protection
             console.print(f"[cyan][FOUNDRY] Running audit: {manifest.audit_command}[/cyan]")
             blackbox.log("AUDIT_STARTED", manifest.audit_command)
 
-            exit_code, output = container.exec_run(
-                cmd=["sh", "-c", manifest.audit_command],
-                workdir="/workspace",
+            exit_code, output = self._exec_with_timeout(
+                container, manifest.audit_command, timeout=EXEC_TIMEOUT_SECONDS
             )
 
             output_str = output.decode("utf-8") if isinstance(output, bytes) else str(output)

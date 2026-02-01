@@ -29,6 +29,9 @@ DB_CONFIG = {
     "user": os.getenv("DB_USER", "gantry"),
     "password": os.getenv("DB_PASSWORD", "securepass"),
     "database": os.getenv("DB_NAME", "gantry_fleet"),
+    # Connection and query timeouts to prevent pool exhaustion
+    "connect_timeout": 10,  # 10s connection timeout
+    "options": "-c statement_timeout=30000",  # 30s query timeout (in ms)
 }
 
 # Connection pool (initialized on first use)
@@ -66,6 +69,8 @@ def _get_pool() -> SimpleConnectionPool:
 
     Why connection pooling: Reuses connections instead of creating new ones,
     improving performance and reducing database load.
+
+    Connection and query timeouts prevent pool exhaustion under load.
     """
     global _pool
 
@@ -79,9 +84,12 @@ def _get_pool() -> SimpleConnectionPool:
                 user=DB_CONFIG["user"],
                 password=DB_CONFIG["password"],
                 database=DB_CONFIG["database"],
+                connect_timeout=DB_CONFIG["connect_timeout"],
+                options=DB_CONFIG["options"],
             )
             console.print(
-                f"[green][DB] Connection pool created: {DB_CONFIG['host']}:{DB_CONFIG['port']}[/green]"
+                f"[green][DB] Connection pool created: {DB_CONFIG['host']}:{DB_CONFIG['port']} "
+                f"(timeout: {DB_CONFIG['connect_timeout']}s)[/green]"
             )
         except psycopg2.Error as e:
             console.print(f"[red][DB] Failed to create connection pool: {e}[/red]")
