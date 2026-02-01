@@ -1,3 +1,17 @@
+# Copyright 2026 Pramod Kumar Voola
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # -----------------------------------------------------------------------------
 # THE FLEET MANAGER v2 - ASYNC ORCHESTRATOR (V6.5 + 2026 Architecture)
 # -----------------------------------------------------------------------------
@@ -524,6 +538,19 @@ class FleetManager:
                 mission_id, response.question or response.speech, response.proposed_stack
             )
 
+            # Convert iterations to dict format for API
+            iterations_data = None
+            if response.iterations:
+                iterations_data = [
+                    {
+                        "iteration": it.iteration,
+                        "name": it.name,
+                        "features": it.features,
+                        "buildable_now": it.buildable_now,
+                    }
+                    for it in response.iterations
+                ]
+
             return {
                 "status": "AWAITING_INPUT",
                 "speech": response.speech,
@@ -533,6 +560,9 @@ class FleetManager:
                 "design_target": response.design_target,
                 "features": response.features,
                 "confidence": response.confidence,
+                "iterations": iterations_data,
+                "total_iterations": response.total_iterations,
+                "current_iteration": response.current_iteration,
             }
 
         return {
@@ -641,8 +671,12 @@ class FleetManager:
 
                 async with AsyncProgressTracker(mission_id, "ARCHITECTING", self._ws_manager):
                     architect = self._get_architect()
+                    # V7.0: Pass mission_id for vision/mockup support
                     manifest = await asyncio.get_event_loop().run_in_executor(
-                        None, lambda: architect.draft_blueprint(prompt, design_target=design_target)
+                        None,
+                        lambda: architect.draft_blueprint(
+                            prompt, design_target=design_target, mission_id=mission_id
+                        ),
                     )
 
                 if time.time() - mission_start > MISSION_TIMEOUT_SECONDS:

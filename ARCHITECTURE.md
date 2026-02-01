@@ -1,12 +1,12 @@
-# Gantry Architecture
+# GantryFleet Architecture
 
-> Technical documentation for the Gantry Fleet Protocol (V7.0 - 2026 Architecture)
+> Technical documentation for the GantryFleet Protocol (V7.0 - 2026 Architecture)
 
 ---
 
 ## Executive Summary
 
-Gantry is a **production-grade AI software factory** that transforms natural language (and optional design images) into deployed applications. Unlike AI assistants that only generate code snippets, Gantry:
+GantryFleet is a **production-grade AI software factory** that transforms natural language (and optional design images) into deployed applications. Unlike AI assistants that only generate code snippets, GantryFleet:
 
 1. **Consults** via a CTO-style loop: propose plan → user feedback → confirm → build
 2. **Builds** code in isolated Docker containers (Foundry)
@@ -408,4 +408,63 @@ CMD ["python", "src/main.py"]
 
 ---
 
-*Last updated: January 2026 (V7.0 - FastAPI Primary, 2026 Architecture)*
+## Future Roadmap: The Fractal Vision
+
+The following features are planned for future iterations. **For early access or enterprise engagement, contact the author.**
+
+### Multi-Agent Architecture (Research Phase)
+
+The "Fractal Foundry" vision: GantryFleet will evolve from a single-agent factory to a **multi-agent swarm** where:
+
+1. **Coordinator Agent**: Orchestrates the build pipeline
+2. **Architect Agents**: Specialized for different tech stacks
+3. **Critic Agent**: Independent code review before deployment
+4. **Healer Agent**: Dedicated self-repair with learning from past failures
+
+```mermaid
+flowchart TB
+    Coordinator["Coordinator Agent"] --> Architect["Architect (Node)"]
+    Coordinator --> ArchitectPy["Architect (Python)"]
+    Coordinator --> Critic["Critic Agent"]
+    Architect --> Healer["Healer Agent"]
+    Critic --> Healer
+```
+
+### Vector Memory (Planned)
+
+Persistent embeddings for:
+- Learning from successful builds
+- Similarity search for code patterns
+- User preference memory across sessions
+
+**Target integrations:** Supabase Vector, Pinecone, pgvector
+
+### Temporal Orchestration (Planned)
+
+Workflow engine for:
+- Long-running builds with checkpoints
+- Rollback on failure
+- Scheduled deployments
+- Multi-stage pipelines
+
+**Target:** Temporal.io or Inngest
+
+### arc-core-sdk Injection (Research)
+
+Generated applications include their own internal agents:
+- In-app memory (vector DB)
+- Self-monitoring and alerts
+- Automated optimization
+
+---
+
+## Contact & Enterprise
+
+**For advanced features, custom integrations, or enterprise deployment:**
+
+📧 **Email:** [pramod.voola@gmail.com](mailto:pramod.voola@gmail.com)  
+👤 **Author:** Pramod Kumar Voola
+
+---
+
+*Last updated: January 2026 (V7.0 - GantryFleet Production)*

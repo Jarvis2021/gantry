@@ -1,3 +1,17 @@
+# Copyright 2026 Pramod Kumar Voola
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # -----------------------------------------------------------------------------
 # GANTRY FLEET - FASTAPI INTERFACE (V7.0 - 2026 Architecture)
 # -----------------------------------------------------------------------------
@@ -220,6 +234,15 @@ class VoiceRequest(BaseModel):
     image_filename: str | None = Field(None, description="Original filename for image")
 
 
+class IterationInfo(BaseModel):
+    """Single iteration in project breakdown."""
+
+    iteration: int
+    name: str
+    features: list[str] = []
+    buildable_now: bool = False
+
+
 class ConsultResponse(BaseModel):
     """V6.5 consultation response."""
 
@@ -231,6 +254,10 @@ class ConsultResponse(BaseModel):
     design_target: str | None = None
     features: list[str] | None = None
     confidence: float | None = None
+    # Iteration planning for complex projects
+    iterations: list[IterationInfo] | None = None
+    total_iterations: int | None = None
+    current_iteration: int | None = None
 
 
 class ChatRequest(BaseModel):

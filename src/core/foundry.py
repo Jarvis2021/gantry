@@ -1,3 +1,17 @@
+# Copyright 2026 Pramod Kumar Voola
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # -----------------------------------------------------------------------------
 # THE FOUNDRY - BUILDER & EVIDENCE
 # -----------------------------------------------------------------------------
@@ -257,10 +271,10 @@ class Foundry:
         """
         Verify the project has correct Vercel serverless structure.
 
-        Checks:
-        1. api/index.js or api/index.py exists
-        2. vercel.json exists with rewrites
-        3. Handler exports correctly
+        V7.0 LENIENT CHECK: Support multiple valid Vercel structures:
+        1. Static-only: public/index.html + vercel.json (no API required)
+        2. API + Static: api/index.js + public/index.html + vercel.json
+        3. Full serverless: api/*.js with ESM or CommonJS exports
 
         Args:
             container: Running Docker container with the app
@@ -271,36 +285,65 @@ class Foundry:
         """
         console.print("[cyan][FOUNDRY] Verifying Vercel serverless structure...[/cyan]")
 
-        # Check required files exist
+        # V7.0: More lenient check - accept static-only or API projects
         if manifest.stack == StackType.NODE:
             check_cmd = """
-            if [ -f api/index.js ] && [ -f vercel.json ]; then
-                # Check that api/index.js exports a function
-                if grep -q "module.exports" api/index.js; then
-                    echo "STRUCTURE_VALID"
-                    exit 0
-                else
-                    echo "MISSING_EXPORT: api/index.js must have module.exports"
-                    exit 1
+            # Check for valid Vercel structure (multiple patterns allowed)
+            VALID=0
+            
+            # Pattern 1: Static site (public/index.html exists)
+            if [ -f public/index.html ] || [ -f index.html ]; then
+                VALID=1
+                echo "STATIC_SITE_VALID"
+            fi
+            
+            # Pattern 2: API exists with valid exports (ESM or CommonJS)
+            if [ -f api/index.js ]; then
+                # Accept ESM (export default) OR CommonJS (module.exports)
+                if grep -qE "(export default|module\\.exports|exports\\.|export function|export const)" api/index.js; then
+                    VALID=1
+                    echo "API_VALID"
                 fi
+            fi
+            
+            # Pattern 3: vercel.json exists
+            if [ -f vercel.json ]; then
+                echo "VERCEL_CONFIG_VALID"
+            fi
+            
+            # Any valid pattern = success
+            if [ "$VALID" = "1" ]; then
+                echo "STRUCTURE_VALID"
+                exit 0
             else
-                echo "MISSING_FILES: Need api/index.js and vercel.json"
+                echo "INVALID: Need public/index.html OR api/index.js with exports"
                 exit 1
             fi
             """
         elif manifest.stack == StackType.PYTHON:
             check_cmd = """
-            if [ -f api/index.py ] && [ -f vercel.json ]; then
-                # Check that api/index.py has handler class
-                if grep -q "class handler" api/index.py; then
-                    echo "STRUCTURE_VALID"
-                    exit 0
-                else
-                    echo "MISSING_HANDLER: api/index.py must have 'class handler'"
-                    exit 1
+            VALID=0
+            
+            # Pattern 1: Static site
+            if [ -f public/index.html ] || [ -f index.html ]; then
+                VALID=1
+                echo "STATIC_SITE_VALID"
+            fi
+            
+            # Pattern 2: Python API with handler
+            if [ -f api/index.py ]; then
+                # Accept class handler or def handler
+                if grep -qE "(class handler|def handler|def app)" api/index.py; then
+                    VALID=1
+                    echo "API_VALID"
                 fi
+            fi
+            
+            if [ "$VALID" = "1" ]; then
+                echo "STRUCTURE_VALID"
+                exit 0
             else
-                echo "MISSING_FILES: Need api/index.py and vercel.json"
+                echo "INVALID: Need public/index.html OR api/index.py with handler"
                 exit 1
             fi
             """

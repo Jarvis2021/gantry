@@ -1,22 +1,29 @@
-# -----------------------------------------------------------------------------
-# PROJECT IDENTITY: GANTRY (The "Fleet" Protocol)
-# -----------------------------------------------------------------------------
-# Core Concept:
-# Gantry is a headless, voice-activated software factory. It allows a Chief Architect
-# (driving) to spin up ephemeral "Project Pods" (Docker containers) to build,
-# audit, and deploy software artifacts without touching a keyboard.
+# =============================================================================
+# PROJECT IDENTITY: GANTRYFLEET (Enterprise AI Software Factory)
+# =============================================================================
+# Copyright 2026 Pramod Kumar Voola. Apache License 2.0.
+# Enterprise Inquiries: pramod.voola@gmail.com
+# =============================================================================
 #
-# The Gantry Guarantee (Zero-Trust):
+# Core Concept:
+# GantryFleet is an enterprise-grade, AI-powered software factory. It enables 
+# architects to build, audit, and deploy software artifacts through natural 
+# language commands, with complete audit trails and zero-trust security.
+#
+# The GantryFleet Guarantee (Zero-Trust):
 # 1. "No Touch" Build: Code is generated and run inside isolated Project Pods.
 # 2. "Green Light" Deploy: Code is only pushed if the Critic Agent passes audits.
 # 3. "Black Box" Evidence: Every mission records a cryptographic audit trail.
+# 4. "95% Mockup Fidelity": Design uploads are matched with visual precision.
 #
-# Technical Stack:
-# - Brain: AWS Bedrock (Claude 3.5 Sonnet) via IAM Roles.
-# - Body: Docker (via Secure Proxy).
-# - Uplink: Cloudflare Tunnel.
-# - Storage: PostgreSQL (Connection Pooled).
-# -----------------------------------------------------------------------------
+# Technical Stack (V7.0 Production Architecture):
+# - Brain: AWS Bedrock (Claude 3.5 Sonnet) with Vision/Multimodal Support
+# - Body: Docker (via Secure Proxy)
+# - Uplink: Cloudflare Tunnel (version-controlled config)
+# - Storage: PostgreSQL (Connection Pooled with Timeouts)
+# - API: FastAPI (Async, WebSocket, OpenAPI)
+# - Auth: Argon2 + TokenBucket Rate Limiting
+# =============================================================================
 
 # -----------------------------------------------------------------------------
 # 1. SECURITY & SAFETY (NON-NEGOTIABLE)
@@ -209,13 +216,13 @@
    resource timeouts. Shall I proceed?"
 
 # -----------------------------------------------------------------------------
-# 13. ARCHITECTURE v2.0 PATTERNS (REQUIRED)
+# 13. ARCHITECTURE V7.0 PATTERNS (REQUIRED)
 # -----------------------------------------------------------------------------
-# The codebase has been upgraded to v2.0 architecture. Follow these patterns:
+# GantryFleet V7.0 Production Architecture. Follow these patterns:
 #
-- **FASTAPI OVER FLASK**:
+- **FASTAPI ASYNC CORE**:
   - Use `main_fastapi.py` as the primary entrypoint.
-  - All new endpoints must be async (`async def`).
+  - All endpoints MUST be async (`async def`).
   - Use dependency injection via `Depends()`.
   - Leverage auto-generated OpenAPI docs at `/docs`.
 - **WEBSOCKET FOR REAL-TIME**:
@@ -223,34 +230,164 @@
   - Broadcast via `ConnectionManager.broadcast()`.
   - Never rely on HTTP polling for real-time updates.
 - **ARGON2 FOR PASSWORDS**:
-  - Use `auth_v2.py` with Argon2 password hashing.
-  - NEVER use SHA256, MD5, or other weak hashing.
+  - Use `auth.py` with Argon2 password hashing (NOT SHA256/MD5).
   - Support pre-hashed passwords via `GANTRY_PASSWORD_HASH` env var.
 - **TOKEN BUCKET RATE LIMITING**:
   - Apply per-user rate limiting with TokenBucket (not just per-IP).
   - Both `RateLimiter` (IP) and `TokenBucket` (user) must be used.
+- **VISION/MULTIMODAL SUPPORT**:
+  - The Architect supports image inputs for mockup matching.
+  - Design images are saved to `missions/{mission_id}/design-reference.{ext}`.
+  - Claude processes images for 95% visual fidelity.
+- **3-TIER MODEL FALLBACK**:
+  - Tier 1: Claude 4 Sonnet (most capable)
+  - Tier 2: Claude 4 Sonnet (balanced)
+  - Tier 3: Claude 3.5 Sonnet (battle-tested)
+  - Simple apps NEVER fail. Complex apps get 3 chances.
+  - Configured in `architect.py` via `MODEL_TIERS` list.
 - **PLUGGABLE SKILLS**:
   - New AI capabilities go in `src/skills/{skill-name}/`.
   - Each skill has: `handler.py`, `__init__.py`, `SKILL.md`.
   - Skills auto-load at startup via `SkillRegistry.load_all()`.
-  - Never hardcode skills in architect.py.
-- **EXTERNAL PROMPTS**:
-  - AI prompts live in `prompts/*.md` files.
-  - Load with `_load_prompt("name")` pattern.
-  - Never embed 50+ line prompts in Python code.
 - **SPLIT FUNCTIONS**:
-  - Use `fleet_v2.py` pattern: split long functions into phases.
-  - Each phase function: `_phase_architect()`, `_phase_build()`, etc.
+  - Split long functions into phases: `_phase_architect()`, `_phase_build()`, etc.
   - Maximum 50 lines per function enforced.
 
 # -----------------------------------------------------------------------------
 # 14. FILE NAMING CONVENTIONS
 # -----------------------------------------------------------------------------
-- **PRIMARY MODULES**: FastAPI architecture (V7.0):
-  - `main_fastapi.py` - Primary API entry point
+- **PRIMARY MODULES** (V7.0 Production):
+  - `main_fastapi.py` - Primary API entry point (FastAPI)
   - `fleet.py` - Async Fleet Manager with WebSocket support
+  - `architect.py` - AI Blueprint Generator with Vision support
+  - `consultant.py` - CTO Consultation Loop with iteration planning
   - `auth.py` - Argon2 auth with TokenBucket rate limiting
-  - After migration complete, these become the primary files.
+  - `foundry.py` - Docker container build orchestration
+  - `deployer.py` - Vercel deployment with timeout protection
+  - `publisher.py` - GitHub PR automation
 - **SKILLS**: `src/skills/{skill-name}/handler.py`
 - **PROMPTS**: `prompts/{prompt-name}.md`
 - **TESTS**: `tests/test_{module}.py`
+
+# -----------------------------------------------------------------------------
+# 15. MOCKUP/SCREENSHOT MATCHING (95% VISUAL FIDELITY)
+# -----------------------------------------------------------------------------
+# When users upload design mockups, screenshots, or sketches:
+#
+- **VISION ANALYSIS**:
+  - The Architect analyzes uploaded images using Claude's vision capabilities.
+  - Images are stored at `missions/{mission_id}/design-reference.{ext}`.
+  - ALL visual elements must be replicated: layout, colors, typography, spacing.
+- **95% ACCURACY TARGET**:
+  - EXACT color values (extract hex from mockup)
+  - EXACT layout structure (columns, rows, spacing, alignment)
+  - EXACT typography (font sizes, weights, line-heights)
+  - EXACT component styles (buttons, inputs, cards, borders, shadows)
+  - EXACT spacing and padding patterns
+- **README DOCUMENTATION**:
+  - Generated repos MUST include the mockup in README.md:
+    ```
+    ## Design Reference
+    This project was built to match the following design mockup:
+    
+    ![Design Mockup](./design-reference.png)
+    
+    The UI has been crafted to achieve 95%+ visual fidelity.
+    ```
+- **CSS PRECISION**:
+  - Use CSS custom properties for colors (--primary, --secondary, etc.)
+  - Match border-radius precisely (sharp, rounded, or pill-shaped)
+  - Match shadow depths and blur radii
+  - Match font weights and letter-spacing
+
+# -----------------------------------------------------------------------------
+# 16. UI/UX QUALITY STANDARDS (STAFF ENGINEER LEVEL)
+# -----------------------------------------------------------------------------
+# The Architect agent MUST produce UIs that meet professional standards.
+# Act like a Staff Engineer with 10+ years of experience.
+#
+- **TYPOGRAPHY**:
+  - ALWAYS use proper font stacks: `'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`
+  - Font sizes must be readable: minimum 14px for body text, 12px for captions
+  - Line-height: 1.5-1.6 for body text, 1.3 for headings
+  - NEVER use default browser fonts without explicit font-family
+- **TEXT HANDLING**:
+  - ALWAYS set `word-wrap: break-word; overflow-wrap: break-word; word-break: break-word;` on text containers
+  - FLEXBOX FIX: Add `min-width: 0;` to flex children containing text (prevents overflow!)
+  - ALWAYS wrap text content in a `<span>` inside flex containers
+  - Long text must NOT overflow containers - use `text-overflow: ellipsis` where needed
+  - Prevent orphaned words with `hyphens: auto` for paragraphs
+  - Set appropriate `max-width` for text columns (60-80ch for readability)
+- **SPACING & LAYOUT**:
+  - Use consistent spacing scale (4px, 8px, 12px, 16px, 24px, 32px, 48px)
+  - Padding inside cards: minimum 16px
+  - Margins between sections: minimum 24px
+  - NEVER let elements touch container edges without padding
+- **COLORS & CONTRAST**:
+  - Use CSS variables for theming: `--primary`, `--secondary`, `--background`, `--text`
+  - Ensure WCAG AA contrast ratios (4.5:1 for text, 3:1 for large text)
+  - Define hover, focus, and active states for interactive elements
+- **RESPONSIVE DESIGN**:
+  - ALWAYS include viewport meta tag: `<meta name="viewport" content="width=device-width, initial-scale=1.0">`
+  - Use flexbox or grid for layouts, NOT floats
+  - Test layouts at 320px, 768px, and 1200px breakpoints
+  - Mobile-first approach: start with mobile styles, add media queries for larger screens
+- **PROFESSIONAL POLISH**:
+  - Smooth transitions: `transition: all 0.2s ease`
+  - Subtle shadows for depth: `box-shadow: 0 2px 8px rgba(0,0,0,0.08)`
+  - Border-radius for modern look: 6px-12px for cards, 4px for inputs
+  - Focus states for accessibility: `outline: 2px solid var(--primary)`
+- **COMMON MISTAKES TO AVOID**:
+  - NO tiny fonts (less than 12px)
+  - NO text that overflows its container
+  - NO buttons without hover states
+  - NO forms without proper labels and validation feedback
+  - NO horizontal scrolling on mobile
+  - NO elements that touch screen edges on mobile (use safe padding)
+
+# -----------------------------------------------------------------------------
+# 17. LEGAL COMPLIANCE (APACHE 2.0)
+# -----------------------------------------------------------------------------
+# GantryFleet is licensed under Apache License 2.0.
+#
+- **SOURCE FILE HEADERS**:
+  - ALL Python source files in src/ MUST have Apache 2.0 header:
+    ```python
+    # Copyright 2026 Pramod Kumar Voola
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    #     http://www.apache.org/licenses/LICENSE-2.0
+    ```
+- **REQUIRED FILES**:
+  - `LICENSE` - Full Apache 2.0 license text
+  - `NOTICE` - Copyright attribution (travels with all forks)
+- **THIRD-PARTY ATTRIBUTION**:
+  - Document all dependencies in NOTICE file
+  - Respect licenses of all dependencies
+- **ENTERPRISE CONTACT**:
+  - For advanced features or subscription engagement:
+  - Contact: Pramod Kumar Voola (pramod.voola@gmail.com)
+
+# -----------------------------------------------------------------------------
+# 18. GENERATED REPO STANDARDS
+# -----------------------------------------------------------------------------
+# When the Architect generates code that gets deployed, it MUST include:
+#
+- **README.md** with:
+  - Project description
+  - Design reference (if mockup was provided)
+  - Setup instructions
+  - Live demo URL
+- **STRUCTURE**:
+  - `public/index.html` - Main HTML entry
+  - `api/index.js` - Serverless API (if needed)
+  - `vercel.json` - Deployment config
+  - `package.json` - Dependencies
+  - `tests/index.test.js` - Unit tests (90% coverage target)
+- **MOCKUP REFERENCE** (when user uploads design):
+  - Copy mockup to `design-reference.{ext}` in repo
+  - Reference in README: `![Design Mockup](./design-reference.png)`
+  - Include accuracy statement: "Built to match design at 95%+ fidelity"

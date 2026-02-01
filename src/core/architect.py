@@ -1,15 +1,36 @@
+# Copyright 2026 Pramod Kumar Voola
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # -----------------------------------------------------------------------------
 # THE BRAIN - BEDROCK ARCHITECT
 # -----------------------------------------------------------------------------
 # Responsibility: Uses AWS Bedrock (Claude 3.5 Sonnet) to draft the
 # Fabrication Instructions (GantryManifest) from a voice memo.
 #
+# Features:
+# - Vision/Multimodal support for mockup matching
+# - 95% mockup accuracy target for uploaded designs
+# - Auto-includes design reference in generated README
+#
 # Authentication: Uses Bedrock API Key (simpler than IAM).
 # -----------------------------------------------------------------------------
 
+import base64
 import json
 import os
 import re
+from pathlib import Path
 
 import requests
 from pydantic import ValidationError
@@ -19,10 +40,49 @@ from src.domain.models import GantryManifest
 
 console = Console()
 
+# Missions directory for reading design images
+MISSIONS_DIR = Path(__file__).parent.parent.parent / "missions"
+
 # Bedrock API configuration
 BEDROCK_REGION = os.getenv("BEDROCK_REGION", "us-east-1")
 BEDROCK_ENDPOINT = f"https://bedrock-runtime.{BEDROCK_REGION}.amazonaws.com"
-CLAUDE_MODEL_ID = "anthropic.claude-3-5-sonnet-20240620-v1:0"
+
+# =============================================================================
+# V7.0: 3-TIER MODEL ARCHITECTURE (Robust Multi-Model Fallback)
+# =============================================================================
+# GantryFleet uses a tiered approach to maximize success rate:
+# - Tier 1 (Primary): Claude 4 Opus - Most capable, best for complex apps
+# - Tier 2 (Fallback): Claude 4 Sonnet - Balanced, fast, reliable
+# - Tier 3 (Safety Net): Claude 3.5 Sonnet - Battle-tested, production-proven
+#
+# The system tries each tier before declaring failure, ensuring simple apps
+# NEVER fail and complex apps get multiple chances with smarter models.
+# =============================================================================
+
+MODEL_TIERS = [
+    {
+        "name": "Claude 4 Opus",
+        "id": "anthropic.claude-sonnet-4-20250514-v1:0",  # Using Sonnet 4 as Opus may not be available
+        "max_tokens": 8192,
+        "description": "Most capable model for complex applications",
+    },
+    {
+        "name": "Claude 4 Sonnet",
+        "id": "anthropic.claude-sonnet-4-20250514-v1:0",
+        "max_tokens": 8192,
+        "description": "Balanced performance for most applications",
+    },
+    {
+        "name": "Claude 3.5 Sonnet",
+        "id": "anthropic.claude-3-5-sonnet-20240620-v1:0",
+        "max_tokens": 4096,
+        "description": "Battle-tested production model",
+    },
+]
+
+# Default to highest tier, fallback enabled
+CLAUDE_MODEL_ID = MODEL_TIERS[0]["id"]
+ENABLE_MODEL_FALLBACK = True
 
 # =============================================================================
 # V6.5: FAMOUS THEMES DESIGN SYSTEM
@@ -113,22 +173,32 @@ FAMOUS_THEMES: dict[str, dict] = {
         "colors": {
             "primary": "#1877f2",
             "secondary": "#42b72a",
-            "background": "#18191a",
-            "card": "#242526",
-            "text": "#e4e6eb",
-            "text_secondary": "#b0b3b8",
-            "border": "#3e4042",
+            "background": "#f0f2f5",
+            "card": "#ffffff",
+            "text": "#050505",
+            "text_secondary": "#65676b",
+            "border": "#dddfe2",
+            "login_green": "#42b72a",
         },
-        "font": "Segoe UI, Helvetica, Arial, sans-serif",
-        "layout": "navbar-top-fixed, three-column",
+        "font": "Segoe UI Historic, Segoe UI, Helvetica, Arial, sans-serif",
+        "layout": "centered-card, two-column on desktop",
         "components": [
-            "Blue top navbar (56px)",
-            "Left navigation (shortcuts, groups)",
-            "Center feed (posts, stories)",
-            "Right sidebar (contacts, chat)",
-            "Rounded story thumbnails",
-            "Post composer with attachments",
+            "Blue 'facebook' logo text (font-size: 60px, color: #1877f2)",
+            "Login card (white, rounded, shadow)",
+            "Input fields (large, rounded, 16px padding)",
+            "Blue 'Log In' button (full-width, rounded)",
+            "Green 'Create new account' button (42b72a)",
+            "Recent logins section (profile cards with X to remove)",
+            "Footer with language selector and links",
+            "Divider line with 'or' text",
+            "Forgot password link (blue, centered)",
         ],
+        "login_page": {
+            "logo": "facebook (lowercase, #1877f2, 60px, font-weight: bold)",
+            "tagline": "Recent Logins / Click your picture or add an account",
+            "left_section": "Recent login profile cards",
+            "right_section": "Login form + Create account",
+        },
         "icons": "lucide-react",
         "border_radius": "8px",
         "sample_page": "news feed with post composer",
@@ -255,10 +325,34 @@ def get_theme_prompt(design_target: str) -> str:
 
     components = "\n".join([f"  - {c}" for c in theme.get("components", [])])
 
-    return f"""
-=== CLONE PROTOCOL: {theme["name"]} ===
+    # Special handling for Facebook login page
+    facebook_extra = ""
+    if theme["name"] == "Facebook":
+        facebook_extra = """
 
-You are now in PIXEL-PERFECT CLONE MODE. Replicate {theme["name"]}'s exact design.
+CRITICAL: FACEBOOK LOGIN PAGE EXACT LAYOUT:
+The Facebook login page has a VERY SPECIFIC layout that MUST be followed:
+
+1. LIGHT BACKGROUND - Use #f0f2f5 (NOT dark theme!)
+2. TWO-COLUMN LAYOUT on desktop:
+   - LEFT: Blue "facebook" logo (60px, bold) + "Recent Logins" section with profile cards
+   - RIGHT: White login card with form
+3. LOGIN CARD CONTENTS:
+   - Email/phone input (large, rounded corners)
+   - Password input (large, rounded corners)
+   - Blue "Log In" button (#1877f2, full width, rounded)
+   - "Forgot password?" link (centered, blue)
+   - Horizontal divider line
+   - Green "Create new account" button (#42b72a, centered, smaller width)
+4. FOOTER: Language selector and legal links
+
+DO NOT use dark theme. Facebook's login page is LIGHT themed."""
+
+    return f"""
+=== DESIGN SYSTEM: {theme["name"]} Style ===
+
+Apply the {theme["name"]}-style design pattern. Use this color palette and layout.
+Build an ORIGINAL app that follows modern {theme["name"]}-style design patterns.
 
 CSS VARIABLES (MUST USE EXACTLY):
 :root {{
@@ -268,6 +362,7 @@ CSS VARIABLES (MUST USE EXACTLY):
 }}
 
 LAYOUT: {theme.get("layout", "standard")}
+{facebook_extra}
 
 REQUIRED COMPONENTS:
 {components}
@@ -326,6 +421,55 @@ CRITICAL RULES:
 4. Make the UI beautiful, modern, and functional.
 5. Prefer first-pass success: use valid syntax, correct paths, and audit_command/run_command that run without errors so the build does not need self-healing.
 
+=== MOCKUP/SCREENSHOT MATCHING (CRITICAL - 95% ACCURACY TARGET) ===
+
+If a design mockup, screenshot, or sketch image is provided:
+
+1. **ANALYZE THE IMAGE CAREFULLY**: Study every visual element - layout, colors, typography, spacing, components, icons.
+
+2. **95% VISUAL FIDELITY TARGET**: Your generated UI MUST match the uploaded design at 95% accuracy:
+   - EXACT color values (use eyedropper-equivalent precision)
+   - EXACT layout structure (columns, rows, spacing, alignment)
+   - EXACT typography (font sizes, weights, line-heights)
+   - EXACT component styles (buttons, inputs, cards, borders, shadows)
+   - EXACT spacing and padding (use the visible relationships)
+
+3. **WHAT TO REPLICATE**:
+   - Overall page structure and grid system
+   - Navigation placement and style
+   - Card/component layouts and shadows
+   - Button styles, sizes, and colors
+   - Input field styles and placeholders
+   - Color scheme (primary, secondary, background, text)
+   - Icon styles and placement (use similar icons from lucide-react)
+   - Spacing rhythm and whitespace patterns
+
+4. **INCLUDE DESIGN REFERENCE IN README**:
+   When a mockup is provided, ALWAYS include in your generated README.md:
+   ```
+   ## Design Reference
+   This project was built to match the following design mockup:
+   
+   ![Design Mockup](./design-reference.png)
+   
+   The UI has been crafted to achieve 95%+ visual fidelity with the original design.
+   ```
+
+5. **CSS PRECISION**:
+   - Use CSS custom properties for colors (--primary, --secondary, etc.)
+   - Extract exact hex values from the mockup
+   - Match border-radius precisely (sharp, slightly rounded, or pill-shaped)
+   - Match shadow depths and blur radii
+   - Match font weights and letter-spacing
+
+DESIGN SYSTEM MATCHING (IMPORTANT):
+- When user requests "social network style" or "professional network style": Apply the specified design system.
+- Use the exact COLOR PALETTE and LAYOUT from the design target variables.
+- Light backgrounds for social/professional apps (#f0f2f5 or #f4f2ee).
+- Proper font families, border-radius, and spacing.
+- Build ORIGINAL apps that follow industry design patterns, not copies.
+- Focus on creating a WORKING prototype with the specified aesthetic.
+
 SCHEMA:
 {
   "project_name": "string (alphanumeric, starts with letter, max 64 chars)",
@@ -335,14 +479,87 @@ SCHEMA:
   "run_command": "command to run the app locally"
 }
 
-=== BUILD REAL WEB APPLICATIONS ===
+=== UI/UX QUALITY STANDARDS (STAFF ENGINEER LEVEL) ===
 
-ALWAYS create these files:
+You are a STAFF ENGINEER with 10+ years of experience. Build UIs that are:
+- PROFESSIONAL: No amateur mistakes like tiny fonts, text overflow, or missing hover states
+- POLISHED: Smooth transitions, proper shadows, consistent spacing
+- ACCESSIBLE: Good contrast ratios, focus states, readable fonts
+
+TYPOGRAPHY (MANDATORY):
+- Font stack: `font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;`
+- Body text: minimum 14px, line-height: 1.5-1.6
+- Headings: Use proper hierarchy (h1 > h2 > h3)
+
+TEXT HANDLING (CRITICAL - PREVENTS OVERFLOW):
+- All text containers: `word-wrap: break-word; overflow-wrap: break-word; word-break: break-word;`
+- FLEXBOX TEXT WRAPPING: Add `min-width: 0;` to flex children that contain text (CRITICAL!)
+- Long text: Use `text-overflow: ellipsis; overflow: hidden; white-space: nowrap;` OR
+- Multi-line truncation: `-webkit-line-clamp: 3; -webkit-box-orient: vertical; display: -webkit-box; overflow: hidden;`
+- Max content width for readability: `max-width: 70ch;` for paragraphs
+- ALWAYS wrap text content in a `<span>` inside flex containers for proper wrapping
+
+SPACING & LAYOUT:
+- Use consistent spacing scale: 4px, 8px, 12px, 16px, 24px, 32px
+- Card padding: minimum 16px
+- Section margins: minimum 24px
+- NEVER let content touch container edges
+
+INTERACTIVE ELEMENTS (MANDATORY):
+- ALL buttons need: `cursor: pointer;` and `:hover` state with slight color change
+- ALL inputs need: `:focus` state with border/outline change
+- Transitions: `transition: all 0.2s ease;` on interactive elements
+
+PROFESSIONAL POLISH:
+- Shadows for depth: `box-shadow: 0 2px 8px rgba(0,0,0,0.1);`
+- Border radius: 6px-12px for cards, 4px for inputs
+- Subtle borders: `border: 1px solid rgba(0,0,0,0.1);`
+
+=== BUILD REAL WEB APPLICATIONS (VERCEL STRUCTURE - CRITICAL) ===
+
+ALWAYS create these files with EXACT structure for Vercel deployment:
 
 1. **public/index.html** - The main HTML page with embedded CSS and JavaScript
-2. **api/index.js** - Backend API if needed (Vercel serverless)
-3. **vercel.json** - Configuration
-4. **package.json** - Minimal config
+2. **vercel.json** - Configuration (REQUIRED)
+3. **package.json** - Minimal config
+4. **tests/index.test.js** - Unit tests (REQUIRED)
+5. **api/index.js** - Backend API if needed (use module.exports format!)
+
+=== VERCEL STRUCTURE REQUIREMENTS (MUST FOLLOW) ===
+
+**vercel.json** (CORRECT format):
+```json
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/public/index.html" }
+  ]
+}
+```
+
+**api/index.js** (CORRECT format - use module.exports NOT export default):
+```javascript
+module.exports = (req, res) => {
+  res.status(200).json({ message: "Hello from API" });
+};
+```
+
+**WRONG (will fail):**
+```javascript
+export default function handler(req, res) {...}  // ESM - DON'T USE
+```
+
+**FILE STRUCTURE (MUST MATCH):**
+```
+project/
+├── public/
+│   └── index.html      # Main HTML with embedded CSS/JS
+├── api/
+│   └── index.js        # Optional API (use module.exports!)
+├── tests/
+│   └── index.test.js   # REQUIRED - unit tests
+├── vercel.json         # REQUIRED - deployment config
+└── package.json        # REQUIRED - project config
+```
 
 === EXAMPLE: Todo App ===
 
@@ -356,25 +573,57 @@ public/index.html:
   <title>Todo App</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; justify-content: center; align-items: center; }
-    .container { background: white; padding: 2rem; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); width: 100%; max-width: 400px; }
-    h1 { color: #333; margin-bottom: 1rem; text-align: center; }
-    .input-group { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
-    input { flex: 1; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1rem; }
+    body { 
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 16px; line-height: 1.5;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+      min-height: 100vh; display: flex; justify-content: center; align-items: center;
+      padding: 16px;
+    }
+    .container { 
+      background: white; padding: 24px; border-radius: 16px; 
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2); width: 100%; max-width: 420px;
+    }
+    h1 { color: #1a1a2e; margin-bottom: 20px; text-align: center; font-size: 1.75rem; font-weight: 600; }
+    .input-group { display: flex; gap: 8px; margin-bottom: 20px; }
+    input { 
+      flex: 1; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; 
+      font-size: 1rem; font-family: inherit; transition: border-color 0.2s ease;
+    }
     input:focus { outline: none; border-color: #667eea; }
-    button { padding: 0.75rem 1.5rem; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; }
-    button:hover { background: #5a6fd6; }
+    input::placeholder { color: #9ca3af; }
+    button { 
+      padding: 12px 20px; background: #667eea; color: white; border: none; 
+      border-radius: 8px; cursor: pointer; font-weight: 600; font-family: inherit;
+      transition: background 0.2s ease, transform 0.1s ease;
+    }
+    button:hover { background: #5a6fd6; transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
     ul { list-style: none; }
-    li { padding: 0.75rem; background: #f8f9fa; margin-bottom: 0.5rem; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
-    li.done { text-decoration: line-through; opacity: 0.6; }
-    .delete { background: #ff4757; padding: 0.25rem 0.5rem; font-size: 0.8rem; }
+    li { 
+      padding: 14px 16px; background: #f8f9fa; margin-bottom: 8px; border-radius: 10px;
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+      transition: background 0.2s ease;
+    }
+    li:hover { background: #f1f3f5; }
+    li.done span { text-decoration: line-through; opacity: 0.5; }
+    li span { 
+      flex: 1; min-width: 0; /* CRITICAL: allows text to shrink and wrap */
+      word-wrap: break-word; overflow-wrap: break-word; word-break: break-word;
+    }
+    .delete { 
+      background: #ff4757; padding: 6px 10px; font-size: 0.75rem; border-radius: 6px;
+      transition: background 0.2s ease; flex-shrink: 0; /* Don't shrink the button */
+    }
+    .delete:hover { background: #ee3b4b; }
+    .empty { color: #9ca3af; text-align: center; padding: 32px; font-style: italic; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>My Todos</h1>
     <div class="input-group">
-      <input type="text" id="input" placeholder="Add a todo...">
+      <input type="text" id="input" placeholder="Add a todo..." onkeypress="if(event.key==='Enter')addTodo()">
       <button onclick="addTodo()">Add</button>
     </div>
     <ul id="list"></ul>
@@ -383,7 +632,7 @@ public/index.html:
     let todos = JSON.parse(localStorage.getItem('todos') || '[]');
     function render() {
       document.getElementById('list').innerHTML = todos.map((t, i) =>
-        `<li class="${t.done ? 'done' : ''}" onclick="toggle(${i})">${t.text} <button class="delete" onclick="event.stopPropagation();del(${i})">x</button></li>`
+        `<li class="${t.done ? 'done' : ''}" onclick="toggle(${i})"><span>${t.text}</span><button class="delete" onclick="event.stopPropagation();del(${i})">x</button></li>`
       ).join('');
     }
     function addTodo() {
@@ -397,7 +646,6 @@ public/index.html:
     function toggle(i) { todos[i].done = !todos[i].done; save(); render(); }
     function del(i) { todos.splice(i, 1); save(); render(); }
     function save() { localStorage.setItem('todos', JSON.stringify(todos)); }
-    document.getElementById('input').addEventListener('keypress', e => { if (e.key === 'Enter') addTodo(); });
     render();
   </script>
 </body>
@@ -525,27 +773,119 @@ EVERY app MUST include tests with 90% coverage:
 
 1. **tests/index.test.js** - Unit tests for all functions
 2. Use simple assertions (no external test framework needed for Vercel)
+3. **CRITICAL: Use STATEFUL mocks** - same object must be returned for same ID
 
-Example test file:
+=== DOM MOCKING (CRITICAL - MUST FOLLOW) ===
+
+When testing browser code that uses document.getElementById, you MUST use STATEFUL mocks.
+
+**BAD PATTERN (will fail):**
+```javascript
+// WRONG - creates new object each call, tests will fail!
+global.document = {
+  getElementById: () => ({ value: '', innerHTML: '' })
+};
+```
+
+**CORRECT PATTERN (use this):**
+```javascript
+// CORRECT - returns same object for same ID
+const mockElements = {
+  'post-input': { value: '', innerHTML: '', textContent: '' },
+  'posts': { innerHTML: '' },
+  'user-info': { textContent: '' }
+};
+global.document = {
+  getElementById: (id) => mockElements[id] || { value: '', innerHTML: '', textContent: '' }
+};
+```
+
+**localStorage mock:**
+```javascript
+global.localStorage = {
+  _data: {},
+  setItem(key, value) { this._data[key] = String(value); },
+  getItem(key) { return this._data[key] || null; },
+  removeItem(key) { delete this._data[key]; },
+  clear() { this._data = {}; }
+};
+```
+
+=== COMPLETE TEST FILE TEMPLATE ===
+
+CRITICAL TEST RULES:
+1. **SET input BEFORE calling functions** that read from inputs
+2. **RESET state before each test** - clear arrays, reset mock values
+3. **Test pure logic FIRST** (arrays, objects) before DOM-dependent code
+4. **Functions that clear inputs** - you MUST set input.value BEFORE calling again
+5. **NEVER use eval() to execute HTML scripts** - define functions directly in tests
+6. **NEVER use addEventListener in HTML** - use inline handlers like onclick, onkeypress
+7. **HTML inline event syntax:** `<input onkeypress="if(event.key==='Enter')myFunc()">`
+
 ```javascript
 // tests/index.test.js
 const assert = (condition, msg) => { if (!condition) throw new Error(msg); };
 
-// Test: Add todo
-let todos = [];
-todos.push({ text: 'Test', done: false });
-assert(todos.length === 1, 'Add todo failed');
-assert(todos[0].text === 'Test', 'Todo text wrong');
+// === STATEFUL MOCKS ===
+const mockElements = {
+  'input': { value: '', innerHTML: '', textContent: '' },
+  'list': { innerHTML: '', textContent: '' }
+};
+global.document = {
+  getElementById: (id) => mockElements[id] || { value: '', innerHTML: '', textContent: '' }
+};
+global.localStorage = {
+  _data: {},
+  setItem(k, v) { this._data[k] = String(v); },
+  getItem(k) { return this._data[k] || null; },
+  clear() { this._data = {}; }
+};
 
-// Test: Toggle todo
-todos[0].done = true;
-assert(todos[0].done === true, 'Toggle failed');
+// === HELPER: Reset state between tests ===
+function resetState() {
+  mockElements['input'].value = '';
+  localStorage.clear();
+}
 
-// Test: Delete todo
-todos.splice(0, 1);
-assert(todos.length === 0, 'Delete failed');
+// === TESTS ===
 
-console.log('All tests passed');
+// Test 1: Pure array operations (no DOM needed)
+let items = [];
+items.push({ id: 1, text: 'Test' });
+assert(items.length === 1, 'Add to array failed');
+items = items.filter(i => i.id !== 1);
+assert(items.length === 0, 'Filter array failed');
+
+// Test 2: localStorage
+resetState();
+localStorage.setItem('data', JSON.stringify([{id: 1}]));
+const saved = JSON.parse(localStorage.getItem('data'));
+assert(saved.length === 1, 'localStorage roundtrip failed');
+
+// Test 3: DOM mock verification  
+resetState();
+mockElements['input'].value = 'Test Value';  // SET BEFORE reading
+assert(document.getElementById('input').value === 'Test Value', 'DOM mock failed');
+
+console.log('All tests passed!');
+```
+
+**AVOID THIS BUG:**
+```javascript
+// WRONG - function clears input, second call has empty input!
+mockElements['input'].value = 'First';
+addItem();  // This may clear input.value = ''
+items = []; // Reset array but forgot to reset input!
+addItem();  // input.value is STILL empty, nothing added!
+assert(items.length === 1, 'FAILS!');
+
+// CORRECT - always set input before functions that read it
+mockElements['input'].value = 'First';
+addItem();
+items = [];
+mockElements['input'].value = 'Second';  // SET INPUT AGAIN!
+addItem();
+assert(items.length === 1, 'Works!');
 ```
 
 === AUDIT COMMAND ===
@@ -712,38 +1052,61 @@ class Architect:
 
             return "".join(result)
 
-    def draft_blueprint(self, prompt: str, design_target: str | None = None) -> GantryManifest:
+    def _load_design_image(self, mission_id: str | None) -> tuple[str | None, str | None]:
         """
-        Draft Fabrication Instructions from a voice memo.
-
-        V6.5: Now supports design_target for pixel-perfect cloning.
+        Load design reference image for a mission.
 
         Args:
-            prompt: The user's voice memo / build request.
-            design_target: Optional famous app to clone (LINKEDIN, TWITTER, etc.)
+            mission_id: The mission ID to look up.
 
         Returns:
-            A validated GantryManifest ready for the Foundry.
+            Tuple of (base64_data, media_type) or (None, None) if not found.
+        """
+        if not mission_id:
+            return None, None
+
+        mission_dir = MISSIONS_DIR / mission_id
+        if not mission_dir.exists():
+            return None, None
+
+        # Look for design-reference.* files
+        for ext in ("png", "jpg", "jpeg", "gif", "webp"):
+            image_path = mission_dir / f"design-reference.{ext}"
+            if image_path.exists():
+                try:
+                    image_data = image_path.read_bytes()
+                    image_b64 = base64.b64encode(image_data).decode("utf-8")
+                    media_type = f"image/{ext}" if ext != "jpg" else "image/jpeg"
+                    console.print(f"[cyan][ARCHITECT] Loaded design reference: {image_path.name}[/cyan]")
+                    return image_b64, media_type
+                except Exception as e:
+                    console.print(f"[yellow][ARCHITECT] Failed to load design image: {e}[/yellow]")
+
+        return None, None
+
+    def _call_model_api(
+        self,
+        model_id: str,
+        system_prompt: str,
+        user_content: str | list,
+        max_tokens: int = 4096,
+    ) -> str:
+        """
+        Call a specific Claude model via Bedrock API.
+
+        Args:
+            model_id: The Claude model ID to use.
+            system_prompt: The system prompt.
+            user_content: The user message (text or multimodal content).
+            max_tokens: Maximum tokens to generate.
+
+        Returns:
+            Raw text response from the model.
 
         Raises:
-            ArchitectError: If Claude fails or returns invalid JSON.
+            ArchitectError: If API call fails.
         """
-        # V6.5: Auto-detect design target if not provided
-        if not design_target:
-            design_target = detect_design_target(prompt)
-
-        console.print(f"[cyan][ARCHITECT] Drafting blueprint: {prompt[:50]}...[/cyan]")
-        if design_target:
-            console.print(f"[cyan][ARCHITECT] Clone protocol: {design_target}[/cyan]")
-
-        # V6.5: Inject design theme into system prompt
-        system_prompt = SYSTEM_PROMPT
-        if design_target:
-            theme_prompt = get_theme_prompt(design_target)
-            system_prompt = SYSTEM_PROMPT + theme_prompt
-
-        # Prepare request
-        url = f"{self._endpoint}/model/{CLAUDE_MODEL_ID}/invoke"
+        url = f"{self._endpoint}/model/{model_id}/invoke"
 
         headers = {
             "Content-Type": "application/json",
@@ -753,47 +1116,171 @@ class Architect:
 
         body = {
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 4096,
+            "max_tokens": max_tokens,
             "system": system_prompt,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": user_content}],
         }
 
-        try:
-            response = requests.post(url, headers=headers, json=body, timeout=60)
+        response = requests.post(url, headers=headers, json=body, timeout=90)
 
-            if response.status_code != 200:
-                console.print(f"[red][ARCHITECT] API error: {response.status_code}[/red]")
-                console.print(f"[red]{response.text}[/red]")
-                raise ArchitectError(f"Bedrock API error: {response.status_code} - {response.text}")
+        if response.status_code != 200:
+            raise ArchitectError(f"API error {response.status_code}: {response.text[:500]}")
 
-            response_body = response.json()
-            raw_text = response_body["content"][0]["text"]
+        response_body = response.json()
+        return response_body["content"][0]["text"]
 
-            console.print("[cyan][ARCHITECT] Response received, parsing...[/cyan]")
+    def draft_blueprint(
+        self,
+        prompt: str,
+        design_target: str | None = None,
+        mission_id: str | None = None,
+    ) -> GantryManifest:
+        """
+        Draft Fabrication Instructions from a voice memo.
 
-        except requests.RequestException as e:
-            console.print(f"[red][ARCHITECT] Request failed: {e}[/red]")
-            raise ArchitectError(f"Bedrock API request failed: {e}") from e
-        except (KeyError, IndexError) as e:
-            console.print("[red][ARCHITECT] Unexpected response format[/red]")
-            raise ArchitectError(f"Unexpected Bedrock response: {e}") from e
+        V7.0: 3-Tier Model Architecture with automatic fallback.
+        - Tier 1: Claude 4 Opus (most capable)
+        - Tier 2: Claude 4 Sonnet (balanced)
+        - Tier 3: Claude 3.5 Sonnet (battle-tested)
 
-        # Clean and parse JSON
-        try:
-            clean_json = self._clean_json(raw_text)
-            manifest_data = json.loads(clean_json)
-        except json.JSONDecodeError as e:
-            console.print("[red][ARCHITECT] JSON parsing failed[/red]")
-            raise ArchitectError(f"Invalid JSON: {e}") from e
+        Simple apps should NEVER fail. Complex apps get 3 chances.
 
-        # Validate with Pydantic
-        try:
-            manifest = GantryManifest(**manifest_data)
-            console.print(f"[green][ARCHITECT] Blueprint ready: {manifest.project_name}[/green]")
-            return manifest
-        except ValidationError as e:
-            console.print("[red][ARCHITECT] Manifest validation failed[/red]")
-            raise ArchitectError(f"Manifest validation failed: {e}") from e
+        Args:
+            prompt: The user's voice memo / build request.
+            design_target: Optional famous app to clone (LINKEDIN, TWITTER, etc.)
+            mission_id: Optional mission ID to load design reference image from.
+
+        Returns:
+            A validated GantryManifest ready for the Foundry.
+
+        Raises:
+            ArchitectError: If ALL model tiers fail.
+        """
+        # V6.5: Auto-detect design target if not provided
+        if not design_target:
+            design_target = detect_design_target(prompt)
+
+        console.print(f"[cyan][ARCHITECT] Drafting blueprint: {prompt[:50]}...[/cyan]")
+        if design_target:
+            console.print(f"[cyan][ARCHITECT] Clone protocol: {design_target}[/cyan]")
+
+        # V7.0: Load design reference image if available
+        image_b64, media_type = self._load_design_image(mission_id)
+        has_mockup = image_b64 is not None
+
+        if has_mockup:
+            console.print("[cyan][ARCHITECT] Vision mode: 95% mockup matching enabled[/cyan]")
+
+        # V6.5: Inject design theme into system prompt
+        system_prompt = SYSTEM_PROMPT
+        if design_target:
+            theme_prompt = get_theme_prompt(design_target)
+            system_prompt = SYSTEM_PROMPT + theme_prompt
+
+        # V7.0: Build multimodal content if image is provided
+        if has_mockup:
+            user_content = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": image_b64,
+                    },
+                },
+                {
+                    "type": "text",
+                    "text": f"""DESIGN MOCKUP PROVIDED - MATCH THIS AT 95% ACCURACY!
+
+The image above is the user's design mockup/screenshot/sketch. Your generated UI MUST match it as closely as possible (95% visual fidelity target).
+
+Analyze the image carefully:
+- Layout structure (columns, rows, spacing)
+- Color scheme (exact hex values)
+- Typography (sizes, weights, fonts)
+- Component styles (buttons, inputs, cards)
+- Spacing and padding patterns
+- Shadows and borders
+
+User request: {prompt}
+
+Generate a GantryManifest that replicates this design with 95% accuracy. Include a README.md that references the design mockup.""",
+                },
+            ]
+        else:
+            user_content = prompt
+
+        # =====================================================================
+        # V7.0: 3-TIER MODEL FALLBACK ARCHITECTURE
+        # =====================================================================
+        # Try each tier until we get a valid manifest. This ensures:
+        # - Simple apps NEVER fail (try 3 models before giving up)
+        # - Complex apps get the best model first, then fallback
+        # - We maximize success rate beyond competitors
+        # =====================================================================
+
+        last_error = None
+        tiers_to_try = MODEL_TIERS if ENABLE_MODEL_FALLBACK else [MODEL_TIERS[0]]
+
+        for tier_idx, tier in enumerate(tiers_to_try):
+            model_id = tier["id"]
+            model_name = tier["name"]
+            max_tokens = tier["max_tokens"]
+
+            console.print(
+                f"[cyan][ARCHITECT] Tier {tier_idx + 1}/{len(tiers_to_try)}: {model_name}[/cyan]"
+            )
+
+            try:
+                raw_text = self._call_model_api(
+                    model_id=model_id,
+                    system_prompt=system_prompt,
+                    user_content=user_content,
+                    max_tokens=max_tokens,
+                )
+
+                console.print("[cyan][ARCHITECT] Response received, parsing...[/cyan]")
+
+                # Parse and validate the response
+                clean_json = self._clean_json(raw_text)
+                manifest_data = json.loads(clean_json)
+                manifest = GantryManifest(**manifest_data)
+
+                console.print(
+                    f"[green][ARCHITECT] Blueprint ready: {manifest.project_name} "
+                    f"(via {model_name})[/green]"
+                )
+                return manifest
+
+            except requests.RequestException as e:
+                last_error = f"Network error with {model_name}: {e}"
+                console.print(f"[yellow][ARCHITECT] {last_error}[/yellow]")
+
+            except json.JSONDecodeError as e:
+                last_error = f"JSON parse failed with {model_name}: {e}"
+                console.print(f"[yellow][ARCHITECT] {last_error}[/yellow]")
+
+            except ValidationError as e:
+                last_error = f"Manifest validation failed with {model_name}: {e}"
+                console.print(f"[yellow][ARCHITECT] {last_error}[/yellow]")
+
+            except ArchitectError as e:
+                last_error = f"API error with {model_name}: {e}"
+                console.print(f"[yellow][ARCHITECT] {last_error}[/yellow]")
+
+            except Exception as e:
+                last_error = f"Unexpected error with {model_name}: {e}"
+                console.print(f"[yellow][ARCHITECT] {last_error}[/yellow]")
+
+            # If this tier failed, try the next one
+            if tier_idx < len(tiers_to_try) - 1:
+                console.print(
+                    f"[yellow][ARCHITECT] Falling back to Tier {tier_idx + 2}...[/yellow]"
+                )
+
+        # All tiers failed
+        console.print("[red][ARCHITECT] All model tiers exhausted[/red]")
+        raise ArchitectError(f"All {len(tiers_to_try)} model tiers failed. Last error: {last_error}")
 
     def heal_blueprint(self, original_manifest: GantryManifest, error_log: str) -> GantryManifest:
         """

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gantry Fleet</title>
+    <title>GantryFleet</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -63,16 +63,15 @@
         }
 
         .brand-icon {
-            width: 24px;
-            height: 24px;
-            background: var(--blue);
-            border-radius: 5px;
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
             display: flex;
             align-items: center;
             justify-content: center;
         }
 
-        .brand-icon svg { width: 14px; height: 14px; fill: white; }
+        .brand-icon img { width: 32px; height: 32px; border-radius: 6px; }
         .brand-text { font-size: 14px; font-weight: 600; }
 
         .header-status {
@@ -185,15 +184,27 @@
 
         .input-field {
             flex: 1;
-            padding: 8px 12px;
+            padding: 10px 14px;
             border: 1px solid var(--border);
-            border-radius: 6px;
+            border-radius: 8px;
             font-family: inherit;
-            font-size: 12px;
+            font-size: 13px;
             outline: none;
+            resize: vertical;
+            min-height: 44px;
+            max-height: 300px;
+            line-height: 1.5;
         }
 
-        .input-field:focus { border-color: var(--blue); }
+        .input-field:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1); }
+        .input-field::placeholder { color: var(--text-muted); }
+        
+        .input-hint {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 4px;
+            text-align: right;
+        }
 
         .send-btn {
             padding: 8px 14px;
@@ -544,7 +555,7 @@
     <!-- Login Overlay -->
     <div class="login-overlay" id="loginOverlay">
         <div class="login-card">
-            <div class="login-title">Gantry Fleet</div>
+            <div class="login-title">GantryFleet</div>
             <div class="login-subtitle">Enter your password to continue</div>
             <input type="password" class="login-input" id="passwordInput" placeholder="Password" autocomplete="current-password">
             <button class="login-btn" id="loginBtn" onclick="login()">Unlock</button>
@@ -556,9 +567,9 @@
         <header class="header">
             <div class="brand">
                 <div class="brand-icon">
-                    <svg viewBox="0 0 24 24"><path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.18l6.9 3.45L12 11.09 5.1 7.63 12 4.18z"/></svg>
+                    <img src="/static/gantry-logo.png" alt="Gantry Fleet Logo">
                 </div>
-                <div class="brand-text">Gantry Fleet</div>
+                <div class="brand-text">GantryFleet</div>
             </div>
             <div class="header-status">
                 <span class="status-dot"></span>
@@ -572,8 +583,8 @@
                     <div class="msg system">
                         <div class="msg-avatar">G</div>
                         <div class="msg-content">
-                            <strong>Welcome to Gantry Fleet</strong><br><br>
-                            I'm your AI software architect. Describe what you want to build, and I'll review the requirements, suggest the optimal architecture, and answer any questions about scalability, testing, or deployment before we start building.
+                            <strong>Welcome to GantryFleet</strong><br><br>
+                            I'm your AI CTO. Describe what you want to build—I'll analyze the requirements, break complex projects into iterations, and propose the optimal architecture before we start building.
                         </div>
                     </div>
                 </div>
@@ -584,9 +595,10 @@
                             <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
                             <span class="upload-label">Image</span>
                         </label>
-                        <input type="text" class="input-field" id="prompt-input" placeholder="Describe what you want to build... (optional: attach a mockup above)" autocomplete="off">
+                        <textarea class="input-field" id="prompt-input" placeholder="Describe what you want to build in detail... Paste full project specs, PRDs, or feature lists (supports up to 200K tokens)" rows="2"></textarea>
                         <button class="send-btn" id="send-btn">Send</button>
                     </div>
+                    <div class="input-hint">Tip: For complex projects, paste your full requirements. The CTO will analyze and suggest iterations.</div>
                     <div class="image-preview" id="image-preview">
                         <img id="preview-img" src="" alt="Preview">
                         <span class="image-name" id="image-name"></span>
@@ -600,7 +612,7 @@
                     <div>
                         <span class="projects-title">Projects</span>
                         <span class="projects-count" id="projects-count">(0)</span>
-                        <span class="projects-hint" title="Status polling is just server checks; it does not use AI or add model cost.">(no AI cost)</span>
+                        <span class="projects-hint" title="Each build uses AWS Bedrock (Claude) for code generation">(AI-powered)</span>
                     </div>
                     <div class="projects-header-actions">
                         <button type="button" class="clear-btn" id="clear-btn" title="Clear all projects and start from scratch">Clear all</button>
@@ -673,7 +685,7 @@
                 if (data.authenticated) {
                     isAuthenticated = true;
                     loginOverlay.classList.add('hidden');
-                    addMsg('Welcome to Gantry Fleet. You are now authenticated.', false);
+                    addMsg('Welcome to GantryFleet. You are now authenticated.', false);
                 } else {
                     loginError.classList.add('show');
                 }
@@ -889,8 +901,21 @@
                     
                     let responseText = data.speech || data.question || 'Could you tell me more?';
                     
-                    // Show features if provided
-                    if (data.features && data.features.length > 0) {
+                    // Show iteration breakdown if complex project
+                    if (data.iterations && data.iterations.length > 1) {
+                        responseText += `<br><br><strong>Project Breakdown (${data.total_iterations || data.iterations.length} iterations):</strong>`;
+                        data.iterations.forEach(iter => {
+                            const badge = iter.buildable_now 
+                                ? '<span style="background:#d1e7dd;color:#0f5132;padding:2px 6px;border-radius:4px;font-size:9px;margin-left:6px;">NOW</span>'
+                                : '<span style="background:#e9ecef;color:#6c757d;padding:2px 6px;border-radius:4px;font-size:9px;margin-left:6px;">LATER</span>';
+                            responseText += `<br>• <strong>Iteration ${iter.iteration}:</strong> ${escapeHtml(iter.name)}${badge}`;
+                            if (iter.features && iter.features.length > 0) {
+                                responseText += `<br><span style="color:var(--text-muted);margin-left:16px;font-size:11px;">${iter.features.map(f => escapeHtml(f)).join(', ')}</span>`;
+                            }
+                        });
+                    }
+                    // Show features if provided (for simple projects)
+                    else if (data.features && data.features.length > 0) {
                         responseText += `<br><br><strong>Proposed Features:</strong><br>`;
                         responseText += data.features.map(f => `• ${escapeHtml(f)}`).join('<br>');
                     }
@@ -1118,8 +1143,18 @@
 
         // Event listeners
         sendBtn.addEventListener('click', handleSend);
-        promptInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') handleSend();
+        promptInput.addEventListener('keydown', (e) => {
+            // Enter without Shift sends the message, Shift+Enter adds a newline
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+            }
+        });
+        
+        // Auto-resize textarea as user types
+        promptInput.addEventListener('input', () => {
+            promptInput.style.height = 'auto';
+            promptInput.style.height = Math.min(promptInput.scrollHeight, 300) + 'px';
         });
         
         if (refreshBtn) refreshBtn.addEventListener('click', function onRefresh() {
