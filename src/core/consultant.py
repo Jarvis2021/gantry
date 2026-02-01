@@ -342,18 +342,85 @@ class Consultant:
             "messages": conversation,
         }
 
+        # Retry logic for resilience (up to 3 attempts)
+        max_retries = 3
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    import time
+
+                    wait_time = 2**attempt  # 2s, 4s
+                    console.print(
+                        f"[yellow][AI-ARCHITECT] Retry {attempt}/{max_retries} in {wait_time}s...[/yellow]"
+                    )
+                    time.sleep(wait_time)
+
+                response = requests.post(url, headers=headers, json=body, timeout=60)
+
+                # Rate limiting - retry
+                if response.status_code == 429:
+                    console.print("[yellow][AI-ARCHITECT] Rate limited, retrying...[/yellow]")
+                    last_error = "Rate limited"
+                    continue
+
+                # Server errors - retry
+                if response.status_code >= 500:
+                    console.print(
+                        f"[yellow][AI-ARCHITECT] Server error {response.status_code}, retrying...[/yellow]"
+                    )
+                    last_error = f"Server error {response.status_code}"
+                    continue
+
+                if response.status_code != 200:
+                    console.print(
+                        f"[red][AI-ARCHITECT] API error: {response.status_code} - {response.text[:200]}[/red]"
+                    )
+                    # Provide user-friendly error explanation
+                    error_explanations = {
+                        400: "AI model unavailable. The model may not be enabled in your AWS region. Please contact support.",
+                        401: "Authentication failed. AWS credentials may be invalid or expired.",
+                        403: "Access denied. You may not have permission to use this AI model.",
+                    }
+                    friendly_error = error_explanations.get(
+                        response.status_code,
+                        f"API error ({response.status_code}). Please try again.",
+                    )
+                    return ConsultantResponse(
+                        status="NEEDS_INPUT",
+                        question=f"I encountered an issue: {friendly_error} Would you like me to try a different approach?",
+                        speech=friendly_error,
+                        confidence=0.0,
+                    )
+
+                # Success - break out of retry loop
+                break
+
+            except requests.Timeout:
+                console.print(f"[yellow][AI-ARCHITECT] Timeout on attempt {attempt + 1}[/yellow]")
+                last_error = "Timeout"
+                continue
+
+            except requests.ConnectionError as e:
+                console.print(f"[yellow][AI-ARCHITECT] Connection error: {e}[/yellow]")
+                last_error = str(e)
+                continue
+
+        else:
+            # All retries exhausted
+            console.print(
+                f"[red][AI-ARCHITECT] All {max_retries} attempts failed: {last_error}[/red]"
+            )
+            return ConsultantResponse(
+                status="NEEDS_INPUT",
+                question="I'm having trouble connecting. Please try again in a moment.",
+                speech=f"Connection failed after {max_retries} attempts.",
+                confidence=0.0,
+            )
+
+        # Parse successful response
         try:
-            response = requests.post(url, headers=headers, json=body, timeout=30)
-
-            if response.status_code != 200:
-                console.print(f"[red][AI-ARCHITECT] API error: {response.status_code}[/red]")
-                return ConsultantResponse(
-                    status="NEEDS_INPUT",
-                    question="I'm having trouble. Please rephrase your request.",
-                    speech="Connection issue. Please try again.",
-                    confidence=0.0,
-                )
-
             response_body = response.json()
             raw_text = response_body["content"][0]["text"]
 
@@ -377,8 +444,25 @@ class Consultant:
                     )
                 )
 
+            # HARD ENFORCEMENT: Never READY_TO_BUILD on first message
+            # The AI sometimes ignores the system prompt, so we enforce it here
+            status = result.get("status", "NEEDS_INPUT")
+            if status == "READY_TO_BUILD" and len(conversation) == 1:
+                console.print(
+                    "[yellow][AI-ARCHITECT] Overriding READY_TO_BUILD on first message - "
+                    "must ask at least one question first[/yellow]"
+                )
+                status = "NEEDS_CONFIRMATION"
+                # If AI didn't provide a question, generate a default one
+                if not result.get("question"):
+                    result["question"] = (
+                        "I can build that! Before I start, any specific preferences? "
+                        "(e.g., color theme, additional features, design style)"
+                    )
+                    result["speech"] = "I can build that. Any specific preferences before I start?"
+
             return ConsultantResponse(
-                status=result.get("status", "NEEDS_INPUT"),
+                status=status,
                 question=result.get("question"),
                 proposed_stack=result.get("proposed_stack"),
                 design_target=result.get("design_target"),
@@ -390,14 +474,6 @@ class Consultant:
                 current_iteration=result.get("current_iteration", 1),
             )
 
-        except requests.RequestException as e:
-            console.print(f"[red][AI-ARCHITECT] Request failed: {e}[/red]")
-            return ConsultantResponse(
-                status="NEEDS_INPUT",
-                question="Connection failed. Please try again.",
-                speech="Connection error.",
-                confidence=0.0,
-            )
         except (json.JSONDecodeError, KeyError) as e:
             console.print(f"[red][AI-ARCHITECT] Parse error: {e}[/red]")
             return ConsultantResponse(
