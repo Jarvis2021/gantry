@@ -90,7 +90,7 @@ from src.core.auth import (
     verify_password,
     verify_session,
 )
-from src.core.db import get_mission, init_db, list_missions
+from src.core.db import delete_mission, get_mission, init_db, list_missions
 from src.core.fleet import FleetManager
 from src.skills import load_skills
 
@@ -680,6 +680,29 @@ async def clear_missions(
         }
     except Exception as e:
         console.print(f"[red][API] Clear missions error: {e}[/red]")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/gantry/missions/{mission_id}")
+async def delete_mission_endpoint(
+    mission_id: str,
+    _ip: Annotated[None, Depends(rate_limit_ip)],
+    _user_id: Annotated[str, Depends(get_current_user)],
+):
+    """Delete a specific mission from the database."""
+    try:
+        deleted = delete_mission(mission_id)
+        if deleted:
+            return {
+                "deleted": True,
+                "mission_id": mission_id,
+                "speech": f"Mission {mission_id[:8]} deleted.",
+            }
+        raise HTTPException(status_code=404, detail="Mission not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        console.print(f"[red][API] Delete mission error: {e}[/red]")
         raise HTTPException(status_code=500, detail=str(e))
 
 

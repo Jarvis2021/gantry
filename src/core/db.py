@@ -446,6 +446,26 @@ def clear_all_missions() -> int:
     return count
 
 
+def delete_mission(mission_id: str) -> bool:
+    """
+    Delete a specific mission from the database.
+
+    Args:
+        mission_id: The mission ID to delete
+
+    Returns:
+        True if mission was deleted, False if not found
+    """
+    with get_connection() as conn, conn.cursor() as cursor:
+        cursor.execute("DELETE FROM missions WHERE mission_id = %s", (mission_id,))
+        deleted = cursor.rowcount > 0
+    if deleted:
+        console.print(f"[cyan][DB] Deleted mission {mission_id}[/cyan]")
+    else:
+        console.print(f"[yellow][DB] Mission {mission_id} not found[/yellow]")
+    return deleted
+
+
 def close_pool() -> None:
     """
     Close all connections in the pool.
