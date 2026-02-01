@@ -456,6 +456,62 @@ Generated applications include their own internal agents:
 - Self-monitoring and alerts
 - Automated optimization
 
+### Hybrid Cloud Architecture (Enterprise Subscription)
+
+**This architecture is already implemented and available for enterprise subscribers.**
+
+For high-scale production deployments, GantryFleet supports a 3-layer hybrid architecture:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    LAYER 1: EDGE (Vercel)                   │
+│  • Landing Page (marketing)                                 │
+│  • Dashboard UI (Next.js)                                   │
+│  • Auth (NextAuth.js)                                       │
+│  • API Gateway (proxies to Fleet)                           │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ API/WebSocket
+┌─────────────────────────────────────────────────────────────┐
+│                 LAYER 2: ORCHESTRATOR (Railway/Fly.io)      │
+│  • FastAPI (main_fastapi.py)                               │
+│  • PostgreSQL (Managed)                                     │
+│  • Consultant Agent (stateless)                            │
+│  • WebSocket Manager                                        │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ Docker API (TLS)
+┌─────────────────────────────────────────────────────────────┐
+│                 LAYER 3: BUILD FARM (Cloud VPS)             │
+│  • Docker Host (AWS/GCP/DigitalOcean/Hetzner)              │
+│  • Foundry (spawns build containers)                        │
+│  • Secure Docker Proxy                                      │
+│  • Builder Image Cache                                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Deployment Options:**
+
+| Scale | Architecture | Estimated Cost |
+|-------|--------------|----------------|
+| **Startup** | Single Docker Compose | $0-6/mo |
+| **Growth** | Vercel + Railway + VPS | $25-50/mo |
+| **Enterprise** | Vercel + AWS/GCP + Kubernetes | $100-500/mo |
+
+**Why This Architecture:**
+- **Vercel** excels at frontend (CDN, edge functions, zero-config)
+- **Railway/Fly.io** handles API and long-running processes
+- **Dedicated Build Farm** required for Docker container spawning (neither Vercel nor Railway support Docker-in-Docker)
+
+**Enterprise Benefits:**
+- Global CDN for UI (Vercel Edge)
+- Managed PostgreSQL with backups
+- Auto-scaling build farm
+- 99.9% SLA available
+- Dedicated support
+
+> **Note:** The hybrid architecture requires subscription. The default Docker Compose deployment is sufficient for most use cases and is completely free to self-host.
+
 ---
 
 ## Contact & Enterprise
