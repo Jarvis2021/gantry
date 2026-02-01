@@ -1728,7 +1728,7 @@ Analyze the error and return a CORRECTED GantryManifest that fixes this issue.""
                     )
                     return healed_manifest
                 else:
-                    last_error = f"Healed manifest didn't address the error properly"
+                    last_error = "Healed manifest didn't address the error properly"
                     console.print(f"[yellow][ARCHITECT] {last_error}[/yellow]")
 
             except requests.RequestException as e:
@@ -1769,87 +1769,73 @@ Analyze the error and return a CORRECTED GantryManifest that fixes this issue.""
         """
         error_lower = error_log.lower()
 
-        # DOM/Browser errors
-        if "queryselector" in error_lower and "not a function" in error_lower:
-            return {
+        # Error patterns mapped to their analysis
+        error_patterns = [
+            # DOM/Browser errors
+            (lambda e: "queryselector" in e and "not a function" in e, {
                 "type": "DOM_MOCK_ERROR",
                 "cause": "Test uses document.querySelector which is not mocked",
                 "fix": "Replace querySelector with getElementById, add element to mockElements"
-            }
-        if "getelementbyid" in error_lower and ("null" in error_lower or "undefined" in error_lower):
-            return {
+            }),
+            (lambda e: "getelementbyid" in e and ("null" in e or "undefined" in e), {
                 "type": "DOM_MOCK_MISSING",
                 "cause": "Element ID not found in mockElements",
                 "fix": "Add missing element ID to mockElements object in test file"
-            }
-        if "addeventlistener" in error_lower:
-            return {
+            }),
+            (lambda e: "addeventlistener" in e, {
                 "type": "EVENT_LISTENER_ERROR",
                 "cause": "Using addEventListener which is not mocked",
                 "fix": "Replace addEventListener with inline handlers (onclick, onkeypress)"
-            }
-
-        # Syntax errors
-        if "syntaxerror" in error_lower:
-            return {
+            }),
+            # Syntax errors
+            (lambda e: "syntaxerror" in e or "unexpected token" in e, {
                 "type": "SYNTAX_ERROR",
                 "cause": "Invalid JavaScript/Python syntax",
                 "fix": "Check for missing brackets, quotes, semicolons at indicated line"
-            }
-        if "unexpected token" in error_lower:
-            return {
-                "type": "SYNTAX_ERROR",
-                "cause": "Unexpected character or token",
-                "fix": "Check JSON format, trailing commas, or invalid characters"
-            }
-
-        # Module/Import errors
-        if "module not found" in error_lower or "cannot find module" in error_lower:
-            return {
+            }),
+            # Module/Import errors
+            (lambda e: "module not found" in e or "cannot find module" in e, {
                 "type": "MODULE_NOT_FOUND",
                 "cause": "Required module/file doesn't exist",
                 "fix": "Check file paths, ensure all required files are generated"
-            }
-        if "modulenotfounderror" in error_lower or "no module named" in error_lower:
-            return {
+            }),
+            (lambda e: "modulenotfounderror" in e or "no module named" in e, {
                 "type": "PYTHON_IMPORT_ERROR",
                 "cause": "Python module not found",
                 "fix": "Check sys.path, ensure module exists, use relative imports"
-            }
-
-        # Reference errors
-        if "referenceerror" in error_lower or "is not defined" in error_lower:
-            return {
+            }),
+            # Reference errors
+            (lambda e: "referenceerror" in e or "is not defined" in e, {
                 "type": "REFERENCE_ERROR",
                 "cause": "Variable or function used before definition",
                 "fix": "Ensure functions are defined before use, duplicate from HTML to test"
-            }
-
-        # Type errors
-        if "typeerror" in error_lower:
-            return {
+            }),
+            # Type errors
+            (lambda e: "typeerror" in e, {
                 "type": "TYPE_ERROR",
                 "cause": "Operation on wrong type (e.g., calling non-function)",
                 "fix": "Check variable types, ensure mocks return correct types"
-            }
-
-        # Assertion failures
-        if "assertionerror" in error_lower or "assert" in error_lower:
-            return {
+            }),
+            # Assertion failures
+            (lambda e: "assertionerror" in e or "assert" in e, {
                 "type": "TEST_ASSERTION_FAILED",
                 "cause": "Test assertion did not pass",
                 "fix": "Check test logic, ensure state is reset between tests"
-            }
-
-        # Vercel structure errors
-        if "invalid vercel" in error_lower or "structure" in error_lower:
-            return {
+            }),
+            # Vercel structure errors
+            (lambda e: "invalid vercel" in e or "structure" in e, {
                 "type": "VERCEL_STRUCTURE_ERROR",
                 "cause": "Invalid Vercel deployment structure",
                 "fix": "Ensure public/index.html exists, vercel.json is correct"
-            }
+            }),
+        ]
 
-        # Default
+        # Find first matching pattern
+        for matcher, result in error_patterns:
+            if matcher(error_lower):
+                return result
+
+        # Default if no pattern matches
         return {
             "type": "UNKNOWN_ERROR",
             "cause": "Unrecognized error pattern",
@@ -1879,14 +1865,7 @@ Analyze the error and return a CORRECTED GantryManifest that fixes this issue.""
                 return False
 
         # Basic validation - ensure tests file exists
-        has_tests = any(
-            "test" in f.path.lower()
-            for f in manifest.files
-        )
-        if not has_tests:
-            return False
-
-        return True
+        return any("test" in f.path.lower() for f in manifest.files)
 
     def consult(self, messages: list[dict]) -> dict:
         """

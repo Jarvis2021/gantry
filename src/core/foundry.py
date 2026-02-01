@@ -313,31 +313,31 @@ class Foundry:
         if manifest.stack == StackType.NODE and has_api_js:
             # Check API file has valid exports
             for f in manifest.files:
-                if f.path.startswith("api/") and f.path.endswith(".js"):
-                    if any(kw in f.content for kw in ["export default", "module.exports", "exports.", "export function", "export const"]):
-                        console.print("[dim][FOUNDRY] API_VALID[/dim]")
-                        console.print("[dim][FOUNDRY] STRUCTURE_VALID[/dim]")
-                        return True
+                if f.path.startswith("api/") and f.path.endswith(".js") and any(
+                    kw in f.content for kw in ["export default", "module.exports", "exports.", "export function", "export const"]
+                ):
+                    console.print("[dim][FOUNDRY] API_VALID[/dim]")
+                    console.print("[dim][FOUNDRY] STRUCTURE_VALID[/dim]")
+                    return True
 
         if manifest.stack == StackType.PYTHON and has_api_py:
             # Check API file has valid handler
             for f in manifest.files:
-                if f.path.startswith("api/") and f.path.endswith(".py"):
-                    if any(kw in f.content for kw in ["class handler", "def handler", "def app"]):
-                        console.print("[dim][FOUNDRY] API_VALID[/dim]")
-                        console.print("[dim][FOUNDRY] STRUCTURE_VALID[/dim]")
-                        return True
+                if f.path.startswith("api/") and f.path.endswith(".py") and any(
+                    kw in f.content for kw in ["class handler", "def handler", "def app"]
+                ):
+                    console.print("[dim][FOUNDRY] API_VALID[/dim]")
+                    console.print("[dim][FOUNDRY] STRUCTURE_VALID[/dim]")
+                    return True
 
         # FALLBACK: Container check for edge cases (files might be generated during build)
-        if manifest.stack == StackType.NODE:
-            check_cmd = 'test -f public/index.html && echo "STRUCTURE_VALID" || (test -f index.html && echo "STRUCTURE_VALID" || echo "INVALID")'
-        elif manifest.stack == StackType.PYTHON:
+        if manifest.stack in (StackType.NODE, StackType.PYTHON):
             check_cmd = 'test -f public/index.html && echo "STRUCTURE_VALID" || (test -f index.html && echo "STRUCTURE_VALID" || echo "INVALID")'
         else:
             return True
 
         try:
-            exit_code, output = self._exec_with_timeout(container, check_cmd, timeout=10)
+            _, output = self._exec_with_timeout(container, check_cmd, timeout=10)
             output_str = output.decode("utf-8") if isinstance(output, bytes) else str(output)
             console.print(f"[dim][FOUNDRY] Container check: {output_str.strip()}[/dim]")
 
