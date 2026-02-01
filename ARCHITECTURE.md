@@ -1,33 +1,32 @@
 # Gantry Architecture
 
-> Technical documentation for the Gantry Fleet Protocol v2.0
+> Technical documentation for the Gantry Fleet Protocol (V6.5 Consultation Loop)
 
 ---
 
 ## Executive Summary
 
-Gantry is a **production-grade AI software factory** that transforms natural language into deployed applications. Unlike AI assistants that generate code snippets, Gantry:
+Gantry is a **production-grade AI software factory** that transforms natural language (and optional design images) into deployed applications. Unlike AI assistants that only generate code snippets, Gantry:
 
-1. **Builds** code in isolated Docker containers
-2. **Tests** with self-healing (3 retry attempts)
-3. **Deploys** to Vercel with live URLs
-4. **Publishes** via GitHub PR (never pushes to main)
-5. **Records** cryptographic audit evidence
+1. **Consults** via a CTO-style loop: propose plan → user feedback → confirm → build
+2. **Builds** code in isolated Docker containers (Foundry)
+3. **Tests** with self-healing (up to 3 retry attempts)
+4. **Deploys** to Vercel with live URLs
+5. **Publishes** via GitHub PR (never pushes to main) and **records** cryptographic audit evidence
 
 ---
 
-## Architecture Evolution (v1 to v2)
+## Architecture Overview (V6.5)
 
-| Component | v1.0 (Legacy) | v2.0 (Current) | Improvement |
-|-----------|---------------|----------------|-------------|
-| **API Framework** | Flask (sync) | **FastAPI (async)** | Non-blocking, 3x throughput |
-| **Real-time** | HTTP Polling | **WebSocket** | Instant updates, no waste |
-| **Password Hash** | SHA256 | **Argon2** | Memory-hard, GPU-resistant |
-| **Rate Limiting** | Per-IP only | **Per-User + Per-IP** | TokenBucket algorithm |
-| **Code Structure** | 257-line functions | **Under 50 lines each** | Maintainable, testable |
-| **AI Prompts** | Embedded (200+ lines) | **External `.md` files** | Easy to customize |
-| **Skills** | Hardcoded methods | **Pluggable `skills/` folder** | No core changes needed |
-| **API Docs** | None | **Auto-generated OpenAPI** | `/docs` endpoint |
+| Aspect | Current (V6.5) | Description |
+|--------|----------------|-------------|
+| **API** | Flask (sync) | Primary entry: `src/main.py`. REST only; status via polling. |
+| **Consultation** | CTO Consultant | `src/core/consultant.py`. Multi-turn: propose → question → confirm → build. |
+| **Orchestration** | Fleet Manager | `src/core/fleet.py`. `process_voice_input()` drives consultation then build. |
+| **Auth** | Session + rate limit | `src/core/auth.py`. Password (SHA256) + per-IP rate limiting. |
+| **Design Input** | Text + optional image | Image saved to `missions/{id}/design-reference.{ext}`, injected into pod by Foundry. |
+| **Status** | Polling | `GET /gantry/status/<id>` and `GET /gantry/consultation/<id>`. |
+| **Optional** | FastAPI + WebSocket | `src/main_fastapi.py` + `fleet_v2` for async/real-time; skills in `src/skills/`. |
 
 ---
 
@@ -36,39 +35,34 @@ Gantry is a **production-grade AI software factory** that transforms natural lan
 ```mermaid
 flowchart TB
     subgraph External["External Layer"]
-        WebUI["Web UI"]
-        Voice["Voice/Siri"]
+        WebUI["Web UI (Chat)"]
+        Voice["Voice / Siri (iOS Shortcuts)"]
         API["REST API"]
-        WS["WebSocket"]
     end
 
-    subgraph Tunnel["Cloudflare Tunnel"]
-        Uplink["gantry_uplink<br/>Secure Ingress"]
+    subgraph Tunnel["Cloudflare Tunnel (optional)"]
+        Uplink["gantry_uplink"]
     end
 
-    subgraph FastAPI["FastAPI Core (Async)"]
-        Auth["Argon2 Auth<br/>Token Sessions"]
-        Rate["TokenBucket<br/>Per-User Limit"]
+    subgraph FlaskApp["Flask API (V6.5)"]
+        Auth["Session Auth<br/>Rate Limit"]
         Guard["Guardrails<br/>Content Filter"]
-        Endpoints["Endpoints:<br/>/chat, /architect, /ws"]
+        Endpoints["Endpoints:<br/>/voice, /consult, /architect"]
     end
 
-    subgraph Skills["Pluggable Skills System"]
-        Registry["Skill Registry<br/>(Auto-load)"]
-        Consult["skills/consult/"]
-        Draft["skills/draft/"]
-        Heal["skills/heal/"]
-        Custom["skills/your-skill/"]
+    subgraph Consultation["Consultation Loop"]
+        Consultant["CTO Consultant<br/>consultant.py"]
+        DB_Conv["DB: conversation_history<br/>design_target, pending_question"]
     end
 
     subgraph Brain["AI Architect (Bedrock)"]
-        Prompts["External Prompts<br/>prompts/*.md"]
         Claude["Claude 3.5 Sonnet"]
+        Themes["FAMOUS_THEMES<br/>Clone mode"]
     end
 
     subgraph Security["Security Layer"]
         Policy["Policy Gate<br/>Forbidden Patterns"]
-        Proxy["Docker Proxy<br/>Least Privilege"]
+        Proxy["Docker Proxy<br/>tcp://docker-proxy:2375"]
     end
 
     subgraph Foundry["Foundry (Docker)"]
@@ -84,467 +78,194 @@ flowchart TB
     end
 
     subgraph Storage["Storage"]
-        DB[(PostgreSQL<br/>Connection Pool)]
-        Missions["missions/<br/>Audit Packs"]
+        DB[(PostgreSQL<br/>missions, consultation)]
+        Missions["missions/<br/>design-reference image"]
     end
 
-    External --> Tunnel --> FastAPI
-    FastAPI --> Skills --> Brain
+    External --> Tunnel
+    Tunnel --> FlaskApp
+    FlaskApp --> Consultation
+    Consultation --> DB_Conv
+    Consultation --> Brain
     Brain --> Security --> Foundry
     Foundry --> Deploy
-    FastAPI --> DB
+    FlaskApp --> DB
     BB --> Missions
-    WS -.->|"Real-time<br/>Broadcast"| WebUI
+    Missions -.->|"injected into pod"| Foundry
 ```
 
 ---
 
-## Core Components Comparison
+## Core Components
 
-### Gantry vs Industry Standards
-
-| Capability | Industry Best Practice | Gantry v2.0 | Status |
-|------------|------------------------|-------------|--------|
-| Async API | FastAPI/Starlette | FastAPI | Done |
-| Real-time | WebSocket | Native WebSocket | Done |
-| Password Security | Argon2/bcrypt | Argon2 | Done |
-| Rate Limiting | Token Bucket | TokenBucket + IP | Done |
-| API Documentation | OpenAPI 3.0 | Auto-generated | Done |
-| Function Length | Under 50 lines | All compliant | Done |
-| Config as Code | External files | `prompts/*.md` | Done |
-| Plugin System | Folder-based | `skills/` registry | Done |
-| Type Safety | 100% type hints | Pydantic + hints | Done |
-| Container Security | Rootless, limits | Proxy + limits | Done |
+| Component | Role |
+|-----------|------|
+| **Flask API** (`src/main.py`) | Serves Web UI, `/gantry/auth`, `/gantry/voice`, `/gantry/consult`, `/gantry/consultation/<id>`, `/gantry/themes`, `/gantry/architect`, `/gantry/status/<id>`, etc. |
+| **CTO Consultant** (`src/core/consultant.py`) | Analyzes user message and conversation history; returns proposal, clarifying question, or `ready_to_build` with design_target. |
+| **Fleet Manager** (`src/core/fleet.py`) | `process_voice_input()`: start/continue consultation, save design image, call Consultant; on confirm, `_dispatch_build()` → Architect → Policy → Foundry → Deploy → Publish. |
+| **Architect** (`src/core/architect.py`) | Drafts blueprint (GantryManifest); supports `design_target` (FAMOUS_THEMES) for clone mode. |
+| **Foundry** (`src/core/foundry.py`) | Runs build in Docker; injects `missions/{id}/design-reference.*` into pod as `public/design-reference.*`. |
+| **Policy** (`src/core/policy.py`) | Validates manifest (forbidden patterns, stack, limits). |
+| **DB** (`src/core/db.py`) | Missions, conversation_history, design_target, pending_question, proposed_stack. |
 
 ---
 
 ## Interaction Flow Diagrams
 
-### Chat Mode (Interactive Consultation)
+### Consultation Flow (Primary: Voice / Chat)
+
+This is the main V6.5 path: **Voice/Chat → CTO Proposal → User Feedback → “Proceed” → Build.**
 
 ```mermaid
 sequenceDiagram
     participant User as User
-    participant WS as WebSocket
-    participant API as FastAPI
-    participant Skills as Skills
-    participant AI as Architect
-    participant Fleet as Fleet
-    participant Pod as Pod
+    participant API as Flask API
+    participant Fleet as Fleet Manager
+    participant Consultant as CTO Consultant
+    participant DB as Database
+    participant Architect as Architect
+    participant Pod as Foundry / Pod
     participant Vercel as Vercel
     participant GitHub as GitHub
 
     rect rgb(240, 248, 255)
-        Note over User,AI: Phase 1: Consultation (Multi-turn)
-        User->>API: POST /gantry/chat
-        API->>API: Argon2 verify + TokenBucket
-        API->>Skills: registry.get("consult")
-        Skills->>AI: execute(messages)
-        AI-->>Skills: {response, ready_to_build: false}
-        Skills-->>API: SkillResult
-        API-->>User: "Here is my plan..."
-        
-        User->>API: "yes, build it"
-        API->>Skills: consult.execute()
-        AI-->>API: {ready_to_build: true}
+        Note over User,Consultant: Phase 1: Consultation (multi-turn)
+        User->>API: POST /gantry/voice or /gantry/consult<br/>{message, optional image_base64}
+        API->>Fleet: process_voice_input(message, image_*=...)
+        Fleet->>DB: create_consultation / get_active_consultation
+        Fleet->>Fleet: _save_design_image(mission_id, image) → missions/{id}/design-reference.*
+        Fleet->>Consultant: run(conversation_history, message)
+        Consultant-->>Fleet: ConsultantResponse (question OR ready_to_build, design_target)
+        Fleet->>DB: append_to_conversation, set_pending_question / mark_ready_to_build
+        Fleet-->>API: {status: "AWAITING_INPUT", speech, question, ...}
+        API-->>User: 200 + response (TTS speech, question)
     end
+
+    User->>API: "Yes, proceed" (or confirm)
+    API->>Fleet: process_voice_input("yes, proceed")
+    Fleet->>Consultant: run(...)
+    Consultant-->>Fleet: ready_to_build=true, design_target, build_prompt
+    Fleet->>Fleet: _dispatch_build()
 
     rect rgb(255, 248, 240)
-        Note over User,GitHub: Phase 2: Build Pipeline
-        User->>API: POST /gantry/architect
-        API->>Fleet: dispatch_mission()
-        Fleet-->>API: mission_id
-        API-->>User: {status: "queued"}
-        
-        Note over WS,User: Real-time Updates via WebSocket
-        Fleet->>WS: broadcast("ARCHITECTING")
-        WS-->>User: Status update
-        
-        Fleet->>AI: draft_blueprint()
-        AI-->>Fleet: GantryManifest
-        Fleet->>WS: broadcast("BUILDING")
-        
-        Fleet->>Pod: Build + Audit
-        
-        alt Audit Failed
-            Pod-->>Fleet: Exit code != 0
-            Fleet->>WS: broadcast("HEALING")
-            Fleet->>AI: heal_blueprint(error)
-            Note over Fleet,Pod: Retry (max 3)
-        end
-        
-        Pod-->>Fleet: Audit PASSED
-        Fleet->>WS: broadcast("DEPLOYING")
+        Note over Fleet,GitHub: Phase 2: Build pipeline
+        Fleet->>Architect: draft_blueprint(prompt, design_target=...)
+        Architect-->>Fleet: GantryManifest
+        Fleet->>Pod: Build + audit (self-heal up to 3)
+        Pod-->>Fleet: Audit passed
         Fleet->>Vercel: Deploy
         Vercel-->>Fleet: Live URL
-        
-        Fleet->>WS: broadcast("PUBLISHING")
         Fleet->>GitHub: Open PR
         GitHub-->>Fleet: PR URL
-        
-        Fleet->>WS: broadcast("SUCCESS", {url, pr_url})
+        Fleet->>DB: update_mission_status(DEPLOYED / SUCCESS)
     end
+
+    User->>API: GET /gantry/status/{mission_id}
+    API-->>User: {status, url, pr_url, speech}
 ```
 
-### Voice Mode (One-Shot)
+### Direct Build (Legacy / Bypass Consultation)
+
+Single-shot build without the consultation loop (e.g. automation or “build exactly this”).
 
 ```mermaid
 sequenceDiagram
-    participant Phone as Mobile
-    participant Tunnel as Cloudflare
-    participant API as FastAPI
-    participant Fleet as Fleet
-    participant AI as Architect
-    participant Pod as Pod
+    participant Client as Client
+    participant API as Flask API
+    participant Fleet as Fleet Manager
+    participant Architect as Architect
+    participant Pod as Foundry
+    participant Vercel as Vercel
+    participant GitHub as GitHub
 
-    Phone->>Tunnel: Voice Command
-    Tunnel->>API: POST /gantry/architect
-    API->>API: Auth + Rate Limit
-    API->>Fleet: dispatch_mission()
+    Client->>API: POST /gantry/architect<br/>{voice_memo, deploy, publish}
+    API->>API: Auth + rate limit
+    API->>Fleet: dispatch_mission(voice_memo, deploy, publish)
     Fleet-->>API: mission_id
-    API-->>Phone: "Copy. Gantry assumes control."
-    
-    Note over Fleet,Pod: Background Execution
-    
-    Fleet->>AI: draft_blueprint()
-    AI-->>Fleet: GantryManifest
-    Fleet->>Pod: Build + Audit
-    
-    loop Self-Healing (max 3)
-        alt Failed
-            Fleet->>AI: heal_blueprint(error)
-            Fleet->>Pod: Retry
-        end
-    end
-    
+    API-->>Client: 202 {mission_id, speech: "Gantry assumes control."}
+
+    Note over Fleet,GitHub: Background thread
+    Fleet->>Architect: draft_blueprint(voice_memo)
+    Architect-->>Fleet: GantryManifest
+    Fleet->>Pod: Build + audit (self-heal up to 3)
     Pod-->>Fleet: Success
-    Fleet->>Fleet: Deploy + Publish
-    
-    Note over Phone,API: Later Status Check
-    Phone->>API: GET /gantry/latest
-    API-->>Phone: "Live at calculator.vercel.app"
+    Fleet->>Vercel: Deploy
+    Fleet->>GitHub: Open PR
+
+    Client->>API: GET /gantry/status/{id} or GET /gantry/latest
+    API-->>Client: {status, url, pr_url, speech}
 ```
 
----
+### Design Image Flow
 
-## Component Deep Dive
+Optional image attached to a consultation is stored and then included in the built repo.
 
-### 1. FastAPI Core (`src/main_fastapi.py`)
-
-**Responsibility:** Async request handling with WebSocket support.
-
-```python
-# Key Features
-app = FastAPI(
-    title="Gantry Fleet",
-    description="AI-Powered Software Studio",
-    version="2.0.0",
-)
-
-# WebSocket for real-time updates
-@app.websocket("/gantry/ws/{mission_id}")
-async def websocket_endpoint(websocket: WebSocket, mission_id: str):
-    await manager.connect(websocket, mission_id)
-    # Broadcast status updates to all connected clients
+```mermaid
+flowchart LR
+    A[User uploads image<br/>in Web UI] --> B[POST /gantry/voice or /consult<br/>image_base64, image_filename]
+    B --> C[Fleet: _save_design_image]
+    C --> D["missions/{mission_id}/<br/>design-reference.png"]
+    D --> E[Foundry: build]
+    E --> F["Tar includes file as<br/>public/design-reference.png"]
+    F --> G[Project Pod / Repo]
 ```
-
-**Endpoints:**
-
-| Endpoint | Method | Auth | Description |
-|----------|--------|------|-------------|
-| `/` | GET | No | Serve Web UI |
-| `/docs` | GET | No | OpenAPI docs |
-| `/health` | GET | No | Health check |
-| `/gantry/auth` | POST | No | Get auth token |
-| `/gantry/chat` | POST | Yes | Chat consultation |
-| `/gantry/architect` | POST | Yes | Dispatch build |
-| `/gantry/ws/{id}` | WS | No | Real-time updates |
-
-### 2. Authentication v2 (`src/core/auth_v2.py`)
-
-**Improvements over v1:**
-
-| Feature | v1 | v2 |
-|---------|----|----|
-| Hashing | SHA256 | **Argon2** (OWASP recommended) |
-| Sessions | Dict lookup | **Token-based** with expiry |
-| Rate Limit | Per-IP | **Per-User TokenBucket** |
-
-```python
-# Argon2 password verification
-from argon2 import PasswordHasher
-ph = PasswordHasher()
-
-def verify_password(password: str) -> bool:
-    try:
-        ph.verify(DEFAULT_PASSWORD_HASH, password)
-        return True
-    except VerifyMismatchError:
-        return False
-
-# TokenBucket rate limiting
-class TokenBucket:
-    def consume(self, user_id: str, tokens: int = 1) -> bool:
-        # Allows bursts, refills over time
-        # More flexible than sliding window
-```
-
-### 3. Fleet Manager v2 (`src/core/fleet_v2.py`)
-
-**Refactored from 257 lines to 6 focused functions:**
-
-| Function | Lines | Responsibility |
-|----------|-------|----------------|
-| `dispatch_mission()` | 15 | Queue and spawn task |
-| `_run_mission()` | 30 | Main orchestration |
-| `_phase_architect()` | 20 | Draft blueprint |
-| `_phase_validate()` | 15 | Policy check |
-| `_phase_build()` | 40 | Build with healing |
-| `_phase_publish()` | 35 | GitHub PR |
-| `_finalize_mission()` | 20 | Set final status |
-
-```python
-# WebSocket broadcasting
-async def _update_status(self, mission_id: str, status: str, speech: str):
-    update_mission_status(mission_id, status, speech)
-    # Broadcast to all connected WebSocket clients
-    await self._ws_manager.broadcast(mission_id, {
-        "type": "status",
-        "status": status,
-        "message": speech,
-    })
-```
-
-### 4. Skills System (`src/skills/`)
-
-**Pluggable architecture for extensibility:**
-
-```
-skills/
-├── __init__.py          # SkillRegistry + auto-loader
-├── consult/
-│   ├── __init__.py
-│   ├── handler.py       # ConsultSkill class
-│   └── SKILL.md         # Documentation
-└── your-skill/
-    └── handler.py       # Auto-loaded at startup
-```
-
-```python
-# Skill Protocol
-class Skill(Protocol):
-    name: str
-    description: str
-    
-    async def execute(self, context: dict) -> SkillResult:
-        ...
-
-# Auto-loading at startup
-registry = SkillRegistry()
-registry.load_all()  # Scans skills/ folder
-```
-
-### 5. External Prompts (`prompts/`)
-
-**Externalized from code for easy customization:**
-
-| File | Purpose | Lines |
-|------|---------|-------|
-| `system.md` | Main Architect prompt | ~150 |
-| `consult.md` | Consultation mode | ~50 |
-| `heal.md` | Self-healing mode | ~40 |
-
-```python
-# Loading prompts
-PROMPTS_DIR = Path(__file__).parent.parent.parent / "prompts"
-
-def _load_prompt(name: str) -> str:
-    return (PROMPTS_DIR / f"{name}.md").read_text()
-```
-
----
-
-## Security Architecture
-
-### Defense in Depth
-
-```
-+-------------------------------------------------------------+
-|                    LAYER 1: CLOUDFLARE                       |
-|           DDoS protection, WAF, Edge caching                 |
-+-------------------------------------------------------------+
-|                    LAYER 2: FASTAPI                          |
-|    +-------------+-------------+-------------+              |
-|    |   Argon2    | TokenBucket |  Guardrails |              |
-|    |   (hash)    | (rate/user) |  (content)  |              |
-|    +-------------+-------------+-------------+              |
-+-------------------------------------------------------------+
-|                    LAYER 3: POLICY GATE                      |
-|         Forbidden patterns, stack whitelist, limits          |
-+-------------------------------------------------------------+
-|                    LAYER 4: DOCKER PROXY                     |
-|         API filtering, no socket access, read-only           |
-+-------------------------------------------------------------+
-|                    LAYER 5: PROJECT POD                      |
-|         Ephemeral, 512MB limit, 180s timeout, isolated       |
-+-------------------------------------------------------------+
-```
-
-### Rate Limiting Strategy
-
-| Layer | Algorithm | Scope | Limit |
-|-------|-----------|-------|-------|
-| Cloudflare | Sliding window | Global | 1000 req/min |
-| FastAPI (IP) | Sliding window | Per-IP | 30 req/min |
-| FastAPI (User) | **TokenBucket** | Per-User | 10 req/sec burst 30 |
-
-**Why TokenBucket for users?**
-- Allows legitimate bursts (rapid chat messages)
-- Refills over time (natural conversation pace)
-- More flexible than strict sliding window
 
 ---
 
 ## Data Models
 
-### GantryManifest (Fabrication Instructions)
+### Mission (DB)
 
-```python
-class GantryManifest(BaseModel):
-    project_name: str      # alphanumeric, max 64
-    stack: StackType       # python | node | rust
-    files: list[FileSpec]  # Files to create
-    audit_command: str     # Test command
-    run_command: str       # Start command
-```
+Relevant fields for V6.5:
 
-### Consultation Response
+- `id`, `status`, `prompt`, `speech_output`
+- `conversation_history` (JSONB): list of {role, content}
+- `design_target` (e.g. "LINKEDIN", "TWITTER") for clone mode
+- `pending_question`, `proposed_stack`
+- Created via `create_consultation` / `create_mission`; updated by `append_to_conversation`, `set_design_target`, `mark_ready_to_build`, etc.
 
-```python
-{
-    "response": "I can build that. Here is my plan...",
-    "ready_to_build": false,
-    "suggested_stack": "node",
-    "app_name": "TodoApp",
-    "key_features": ["CRUD", "dark mode", "local storage"],
-    "is_prototype": true
-}
-```
+### ConsultantResponse (Consultant)
 
-### WebSocket Message
+- `response`: natural language reply
+- `status`: `NEEDS_INPUT` | `NEEDS_CONFIRMATION` | `READY_TO_BUILD`
+- `question`: optional clarifying question
+- `design_target`, `proposed_stack`, `build_prompt`, `features`, `confidence`
 
-```python
-{
-    "type": "status",
-    "mission_id": "abc-123",
-    "status": "BUILDING",
-    "message": "Running tests..."
-}
-```
+### GantryManifest (Architect)
+
+- `project_name`, `stack`, `files`, `audit_command`, `run_command`
 
 ---
 
-## Comparison: Gantry vs Similar Projects
+## Security Architecture
 
-### vs OpenClaw/Moltworker (Cloudflare)
+- **Edge**: Cloudflare Tunnel (optional): DDoS, WAF.
+- **API**: Flask + session auth (password, SHA256 or env hash), rate limiting, guardrails.
+- **Policy Gate**: Forbidden patterns, stack whitelist, file limits (`policy.yaml`).
+- **Docker**: No direct socket access; use Docker proxy (`tcp://docker-proxy:2375`).
+- **Pod**: Ephemeral, 512MB limit, 180s Dead Man’s Switch.
 
-| Aspect | OpenClaw | Gantry |
-|--------|----------|--------|
-| **Purpose** | Personal assistant | **Software factory** |
-| **Output** | Chat responses | **Deployed apps + PRs** |
-| **Self-Healing** | No | Yes (3-retry loop) |
-| **Security Scan** | No | Yes (Policy Gate) |
-| **Audit Trail** | No | Yes (Black Box evidence) |
-| **Skills System** | Extensible | Extensible (`skills/` folder) |
-| **Multi-channel** | Telegram, Slack, Discord | Web, API, Voice |
-| **Runtime** | Cloudflare Workers | Docker (anywhere) |
+---
 
-**Key difference:** OpenClaw is a conversational AI. Gantry **ships production code**.
+## Optional: FastAPI and Skills
 
-### vs Devin / GPT Engineer / Aider
+The repo also includes an **optional** FastAPI-based stack:
 
-| Feature | Devin | GPT Eng | Aider | **Gantry** |
-|---------|-------|---------|-------|------------|
-| Open Source | No | Yes | Yes | Yes |
-| Self-Hosted | No | Yes | Yes | Yes |
-| **Deploys Code** | Yes | No | No | Yes |
-| **Self-Healing** | Unknown | No | No | Yes |
-| **PR Workflow** | No | No | No | Yes |
-| **Audit Trail** | No | No | No | Yes |
-| Voice Input | No | No | No | Yes |
-| WebSocket | Unknown | No | No | Yes |
+- **API**: `src/main_fastapi.py` (async, WebSocket for real-time status).
+- **Fleet**: `src/core/fleet_v2.py` (WebSocket broadcast).
+- **Auth**: `src/core/auth_v2.py` (e.g. Argon2, TokenBucket).
+- **Skills**: `src/skills/` (e.g. `consult` skill) for pluggable capabilities.
+
+The **primary production path** is Flask + Consultant + Fleet (`src/main.py` + `src/core/fleet.py` + `src/core/consultant.py`). Use FastAPI/skills when you need async and real-time updates.
 
 ---
 
 ## Extension Points
 
-### Adding a New Skill
-
-1. Create folder: `src/skills/my-skill/`
-2. Add `handler.py`:
-
-```python
-from src.skills import SkillResult
-
-class MySkill:
-    name = "my-skill"
-    description = "What it does"
-    
-    async def execute(self, context: dict) -> SkillResult:
-        # Your logic
-        return SkillResult(success=True, data={...})
-
-skill = MySkill()
-```
-
-3. Skill auto-loads at startup. No core changes needed.
-
-### Adding a New Stack
-
-1. Add to `StackType` enum in `domain/models.py`
-2. Add image mapping in `foundry.py`
-3. Update `policy.yaml` allowed_stacks
-
-### Adding Custom Prompts
-
-1. Create `prompts/my-prompt.md`
-2. Load in skill: `_load_prompt("my-prompt")`
+- **New famous-app theme**: Add an entry to `FAMOUS_THEMES` in `src/core/architect.py` and expose via `GET /gantry/themes`.
+- **Consultation behavior**: Adjust CTO system prompt and response parsing in `src/core/consultant.py`.
+- **New stack or policy**: Update `policy.yaml`, `StackType`, and Foundry/Architect as needed.
 
 ---
 
-## Performance Characteristics
-
-| Metric | Target | Achieved |
-|--------|--------|----------|
-| API Response | Under 100ms | ~50ms (FastAPI async) |
-| Build Time | Under 120s | ~60-90s typical |
-| WebSocket Latency | Under 50ms | ~10ms local |
-| Concurrent Builds | 5+ | Async task spawning |
-| Memory per Pod | Under 512MB | Hard limit enforced |
-
----
-
-## Future Roadmap
-
-### Completed (v2.0)
-- [x] FastAPI async architecture
-- [x] WebSocket real-time updates
-- [x] Argon2 password hashing
-- [x] Per-user TokenBucket rate limiting
-- [x] External prompts (`prompts/*.md`)
-- [x] Pluggable skills system
-- [x] Split long functions (under 50 lines)
-- [x] Auto-generated OpenAPI docs
-
-### Planned (v2.1+)
-- [ ] Multi-channel (Slack, Discord, Telegram bots)
-- [ ] OAuth/OIDC authentication
-- [ ] Redis session store (production)
-- [ ] Streaming AI responses
-- [ ] Browser automation (Playwright)
-- [ ] Kubernetes deployment option
-- [ ] Prometheus metrics
-
----
-
-*Last updated: January 2026*
+*Last updated: January 2026 (V6.5)*
