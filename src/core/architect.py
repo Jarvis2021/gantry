@@ -61,22 +61,22 @@ BEDROCK_ENDPOINT = f"https://bedrock-runtime.{BEDROCK_REGION}.amazonaws.com"
 
 MODEL_TIERS = [
     {
-        "name": "Claude Sonnet 4",
-        "id": "anthropic.claude-sonnet-4-20250514-v1:0",
-        "max_tokens": 8192,
-        "description": "Latest model - best for complex applications",
-    },
-    {
         "name": "Claude 3.5 Sonnet V2",
         "id": "anthropic.claude-3-5-sonnet-20241022-v2:0",
         "max_tokens": 8192,
-        "description": "Updated 3.5 Sonnet - excellent reliability",
+        "description": "Latest stable model - excellent for complex apps",
     },
     {
         "name": "Claude 3.5 Sonnet V1",
         "id": "anthropic.claude-3-5-sonnet-20240620-v1:0",
         "max_tokens": 4096,
         "description": "Battle-tested production model",
+    },
+    {
+        "name": "Claude 3 Sonnet",
+        "id": "anthropic.claude-3-sonnet-20240229-v1:0",
+        "max_tokens": 4096,
+        "description": "Fallback model - widely available",
     },
 ]
 
