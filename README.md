@@ -22,7 +22,7 @@
 | Need copy-paste to run | **Live URL in 90 seconds** |
 | No audit trail | **Black Box evidence** |
 | Push directly to main | **PR workflow for oversight** |
-| Single-shot generation | **CTO Consultation Loop** |
+| Single-shot generation | **AI Architect Consultation** |
 | Text-only input | **Text + Design Image input** |
 
 ---
@@ -40,13 +40,13 @@
 
 ## Key Capabilities (V7.0 - Production)
 
-### 1. CTO Consultation Loop
-GantryFleet doesn't guess. The **CTO Consultant** analyzes your request, proposes a plan, asks clarifying questions, and breaks complex projects into **iterations** before building.
+### 1. AI Architect Consultation
+GantryFleet doesn't guess. The **AI Architect Agent** analyzes your request, proposes a plan, asks clarifying questions, and breaks complex projects into **iterations** before building.
 
 ```
 You: "Build me a LinkedIn-style professional network"
 
-GantryFleet (CTO): "This is a 3-iteration project:
+GantryFleet (AI Architect): "This is a 3-iteration project:
   • Iteration 1 (NOW): Core UI with mock profiles, feed layout
   • Iteration 2 (LATER): Authentication + real user data
   • Iteration 3 (LATER): Messaging + connections
@@ -151,7 +151,7 @@ curl -X POST http://localhost:5050/gantry/voice \
 |-------|------------|-----|
 | **API** | FastAPI (async) | Non-blocking, WebSocket native |
 | **Auth** | Argon2 + TokenBucket | Memory-hard hashing, per-user rate limiting |
-| **AI** | AWS Bedrock (Claude 3.5) | CTO Consultant + Architect |
+| **AI** | AWS Bedrock (Claude 3.5) | AI Architect Agent |
 | **Execution** | Docker (via proxy) | Zero-trust isolation |
 | **Deploy** | Vercel CLI | Instant global CDN |
 | **Publish** | GitHub API | PR workflow, never push to main |
@@ -170,7 +170,7 @@ flowchart TB
     end
 
     subgraph Core["GantryFleet Core"]
-        Consultant["CTO Consultant<br/>(Iteration Planning)"]
+        Consultant["AI Architect Agent<br/>(Iteration Planning)"]
         Architect["AI Architect<br/>(Code Generation)"]
         Policy["Policy Gate"]
     end
@@ -195,7 +195,7 @@ flowchart TB
 
 ### ✅ Production Ready (V7.0)
 
-- CTO Consultation Loop with iteration planning
+- AI Architect Consultation with iteration planning
 - Self-healing builds (3 retry attempts)
 - Zero-trust Docker isolation
 - Vercel deployment with live URLs
@@ -212,12 +212,12 @@ These features are in the research/planning phase. **For early access or enterpr
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| **Multi-Agent Architecture** | Fractal agents that spawn sub-agents | Research |
-| **Vector Memory** | Persistent embeddings (Supabase/Pinecone) | Planned |
-| **Temporal Orchestration** | Workflow engine for complex builds | Planned |
-| **arc-core-sdk Injection** | Generated apps include internal agents | Research |
-| **Multi-Channel** | Slack, Discord, Telegram integration | Planned |
-| **OAuth/OIDC** | Enterprise SSO support | Planned |
+| **Multi-Agent Architecture** | Fractal agents that spawn sub-agents | Subscription |
+| **Vector Memory** | Persistent embeddings (Supabase/Pinecone) | Subscription |
+| **Temporal Orchestration** | Workflow engine for complex builds | Subscription |
+| **arc-core-sdk Injection** | Generated apps include internal agents | Subscription |
+| **Multi-Channel** | Slack, Discord, Telegram integration | Subscription |
+| **OAuth/OIDC** | Enterprise SSO support | Subscription |
 
 ---
 

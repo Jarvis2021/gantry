@@ -13,13 +13,13 @@
 # limitations under the License.
 
 # -----------------------------------------------------------------------------
-# THE CTO CONSULTANT - V6.5 INTERROGATOR
+# THE AI ARCHITECT AGENT - V6.5 INTERROGATOR
 # -----------------------------------------------------------------------------
 # Responsibility: Analyze user requests and decide if we have enough info to
 # build, or if we need to ask clarifying questions.
 #
 # The Consultation Loop:
-# Voice -> CTO Proposal -> User Feedback -> Final Spec -> "Proceed" -> Build
+# Voice -> AI Architect Proposal -> User Feedback -> Final Spec -> "Proceed" -> Build
 #
 # This agent transforms Gantry from a "One-Shot Builder" to a
 # "Conversational Co-Pilot" with Visual Intelligence.
@@ -58,7 +58,7 @@ class IterationPlan(BaseModel):
 
 class ConsultantResponse(BaseModel):
     """
-    The CTO's analysis and recommendation.
+    The AI Architect's analysis and recommendation.
 
     status: NEEDS_INPUT | READY_TO_BUILD | NEEDS_CONFIRMATION
     """
@@ -77,10 +77,10 @@ class ConsultantResponse(BaseModel):
 
 
 # =============================================================================
-# CTO SYSTEM PROMPT
+# AI ARCHITECT SYSTEM PROMPT
 # =============================================================================
 
-CTO_SYSTEM_PROMPT = """You are the Gantry CTO - a Senior Software Architect who reviews requirements before building.
+CTO_SYSTEM_PROMPT = """You are the GantryFleet AI Architect Agent - a Senior Software Architect who reviews requirements before building.
 
 YOUR MISSION:
 Analyze the user's request and determine if you have enough information to build. For complex projects, break them down into iterations.
@@ -206,7 +206,7 @@ User: "[LONG PROJECT SPEC with authentication, payments, admin panel, etc.]"
 
 class Consultant:
     """
-    The CTO Consultant that manages the consultation loop.
+    The AI Architect Agent that manages the consultation loop.
 
     Decides whether to build or ask for clarification.
     """
@@ -220,7 +220,7 @@ class Consultant:
         if not self._api_key:
             raise ArchitectError("BEDROCK_API_KEY not set")
 
-        console.print("[green][CTO] Consultant online[/green]")
+        console.print("[green][AI-ARCHITECT] Agent online[/green]")
 
     def _clean_json(self, text: str) -> str:
         """Extract valid JSON from response."""
@@ -246,7 +246,7 @@ class Consultant:
         Returns:
             ConsultantResponse with status, question, proposed_stack, etc.
         """
-        console.print("[cyan][CTO] Analyzing request...[/cyan]")
+        console.print("[cyan][AI-ARCHITECT] Analyzing request...[/cyan]")
 
         # Check for design target in latest user message
         latest_user_msg = ""
@@ -257,7 +257,7 @@ class Consultant:
 
         detected_target = detect_design_target(latest_user_msg)
         if detected_target:
-            console.print(f"[cyan][CTO] Detected clone target: {detected_target}[/cyan]")
+            console.print(f"[cyan][AI-ARCHITECT] Detected clone target: {detected_target}[/cyan]")
 
         # Check for confirmation keywords
         confirmation_keywords = [
@@ -284,7 +284,7 @@ class Consultant:
 
         # If this is a confirmation, check if we have enough context
         if is_confirmation and len(conversation) > 1:
-            console.print("[green][CTO] User confirmed. Ready to build.[/green]")
+            console.print("[green][AI-ARCHITECT] User confirmed. Ready to build.[/green]")
 
             # Extract design target from conversation history
             for msg in conversation:
@@ -324,7 +324,7 @@ class Consultant:
             response = requests.post(url, headers=headers, json=body, timeout=30)
 
             if response.status_code != 200:
-                console.print(f"[red][CTO] API error: {response.status_code}[/red]")
+                console.print(f"[red][AI-ARCHITECT] API error: {response.status_code}[/red]")
                 return ConsultantResponse(
                     status="NEEDS_INPUT",
                     question="I'm having trouble. Please rephrase your request.",
@@ -369,7 +369,7 @@ class Consultant:
             )
 
         except requests.RequestException as e:
-            console.print(f"[red][CTO] Request failed: {e}[/red]")
+            console.print(f"[red][AI-ARCHITECT] Request failed: {e}[/red]")
             return ConsultantResponse(
                 status="NEEDS_INPUT",
                 question="Connection failed. Please try again.",
@@ -377,7 +377,7 @@ class Consultant:
                 confidence=0.0,
             )
         except (json.JSONDecodeError, KeyError) as e:
-            console.print(f"[red][CTO] Parse error: {e}[/red]")
+            console.print(f"[red][AI-ARCHITECT] Parse error: {e}[/red]")
             return ConsultantResponse(
                 status="NEEDS_INPUT",
                 question="I couldn't understand. Please rephrase.",

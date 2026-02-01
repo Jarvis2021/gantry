@@ -421,8 +421,8 @@ async def voice(
     V6.5 Main Entry Point: Process voice/chat through the Consultation Loop.
 
     This replaces direct builds with a conversational flow:
-    1. First request -> CTO analyzes and asks clarifying questions
-    2. User answers -> CTO confirms understanding
+    1. First request -> AI Architect analyzes and asks clarifying questions
+    2. User answers -> AI Architect confirms understanding
     3. User says "proceed" -> Clone protocol initiated
     """
     if not request.message.strip():

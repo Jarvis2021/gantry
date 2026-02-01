@@ -584,7 +584,7 @@
                         <div class="msg-avatar">G</div>
                         <div class="msg-content">
                             <strong>Welcome to GantryFleet</strong><br><br>
-                            I'm your AI CTO. Describe what you want to build—I'll analyze the requirements, break complex projects into iterations, and propose the optimal architecture before we start building.
+                            I'm your AI Architect Agent. Describe what you want to build—I'll analyze the requirements, break complex projects into iterations, and propose the optimal architecture before we start building.
                         </div>
                     </div>
                 </div>
@@ -598,7 +598,7 @@
                         <textarea class="input-field" id="prompt-input" placeholder="Describe what you want to build in detail... Paste full project specs, PRDs, or feature lists (supports up to 200K tokens)" rows="2"></textarea>
                         <button class="send-btn" id="send-btn">Send</button>
                     </div>
-                    <div class="input-hint">Tip: For complex projects, paste your full requirements. The CTO will analyze and suggest iterations.</div>
+                    <div class="input-hint">Tip: For complex projects, paste your full requirements. The AI Architect will analyze and suggest iterations.</div>
                     <div class="image-preview" id="image-preview">
                         <img id="preview-img" src="" alt="Preview">
                         <span class="image-name" id="image-name"></span>
@@ -896,7 +896,7 @@
                     }
                     
                 } else if (status === 'AWAITING_INPUT') {
-                    // V6.5: CTO is asking a question
+                    // V6.5: AI Architect is asking a question
                     currentMissionId = data.mission_id;
                     
                     let responseText = data.speech || data.question || 'Could you tell me more?';

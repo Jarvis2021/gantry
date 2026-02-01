@@ -8,7 +8,7 @@
 
 GantryFleet is a **production-grade AI software factory** that transforms natural language (and optional design images) into deployed applications. Unlike AI assistants that only generate code snippets, GantryFleet:
 
-1. **Consults** via a CTO-style loop: propose plan → user feedback → confirm → build
+1. **Consults** via an AI-driven loop: propose plan → user feedback → confirm → build
 2. **Builds** code in isolated Docker containers (Foundry)
 3. **Tests** with self-healing (up to 3 retry attempts)
 4. **Deploys** to Vercel with live URLs
@@ -21,7 +21,7 @@ GantryFleet is a **production-grade AI software factory** that transforms natura
 | Aspect | V7.0 (Primary) | Description |
 |--------|----------------|-------------|
 | **API** | FastAPI (async) | Primary entry: `src/main_fastapi.py`. WebSocket + REST. |
-| **Consultation** | CTO Consultant | `src/core/consultant.py`. Multi-turn: propose → question → confirm → build. |
+| **Consultation** | AI Architect Agent | `src/core/consultant.py`. Multi-turn: propose → question → confirm → build. |
 | **Orchestration** | Fleet Manager v2 | `src/core/fleet_v2.py`. Async `process_voice_input()` with WebSocket broadcast. |
 | **Auth** | Argon2 + TokenBucket | `src/core/auth_v2.py`. Modern password hashing + per-user rate limiting. |
 | **Design Input** | Text + optional image | Image saved to `missions/{id}/design-reference.{ext}`, injected into pod by Foundry. |
@@ -54,7 +54,7 @@ flowchart TB
     end
 
     subgraph Consultation["Consultation Loop"]
-        Consultant["CTO Consultant<br/>consultant.py"]
+        Consultant["AI Architect Agent<br/>consultant.py"]
         DB_Conv["DB: conversation_history<br/>design_target, pending_question"]
     end
 
@@ -105,7 +105,7 @@ flowchart TB
 | Component | Role |
 |-----------|------|
 | **FastAPI** (`src/main_fastapi.py`) | Async API with WebSocket: `/gantry/voice`, `/gantry/consult`, `/gantry/ws/{id}`, `/gantry/themes`, `/gantry/architect`, `/gantry/status/{id}`, `/health`, `/ready`. |
-| **CTO Consultant** (`src/core/consultant.py`) | Analyzes user message and conversation history; returns proposal, clarifying question, or `ready_to_build` with design_target. |
+| **AI Architect Agent** (`src/core/consultant.py`) | Analyzes user message and conversation history; returns proposal, clarifying question, or `ready_to_build` with design_target. |
 | **Fleet Manager v2** (`src/core/fleet_v2.py`) | Async `process_voice_input()`: consultation, image saving, build dispatch; WebSocket broadcast for real-time updates. |
 | **Architect** (`src/core/architect.py`) | Drafts blueprint (GantryManifest); supports `design_target` (FAMOUS_THEMES) for clone mode. |
 | **Foundry** (`src/core/foundry.py`) | Runs build in Docker; injects `missions/{id}/design-reference.*` into pod as `public/design-reference.*`. |
@@ -173,7 +173,7 @@ flowchart TB
 
 ### Consultation Flow (Primary: Voice / Chat)
 
-This is the main V7.0 path: **Voice/Chat → CTO Proposal → User Feedback → "Proceed" → Build.**
+This is the main V7.0 path: **Voice/Chat → AI Architect Proposal → User Feedback → "Proceed" → Build.**
 
 ```mermaid
 sequenceDiagram
@@ -181,7 +181,7 @@ sequenceDiagram
     participant API as FastAPI
     participant WS as WebSocket
     participant Fleet as Fleet Manager v2
-    participant Consultant as CTO Consultant
+    participant Consultant as AI Architect Agent
     participant DB as Database
     participant Architect as Architect
     participant Pod as Foundry / Pod
@@ -402,7 +402,7 @@ CMD ["python", "src/main.py"]
 ## Extension Points
 
 - **New famous-app theme**: Add an entry to `FAMOUS_THEMES` in `src/core/architect.py` and expose via `GET /gantry/themes`.
-- **Consultation behavior**: Adjust CTO system prompt and response parsing in `src/core/consultant.py`.
+- **Consultation behavior**: Adjust AI Architect system prompt and response parsing in `src/core/consultant.py`.
 - **New stack or policy**: Update `policy.yaml`, `StackType`, and Foundry/Architect as needed.
 - **New skill**: Add to `src/skills/` for pluggable capabilities.
 
