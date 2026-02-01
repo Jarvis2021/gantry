@@ -1524,6 +1524,18 @@ class Architect:
                 if "document.getElementById" in content and "mockElements" not in content:
                     issues.append(f"{file.path}: Uses getElementById but no mockElements defined")
 
+                # CRITICAL: Check for empty function stubs (the #1 cause of failures)
+                import re
+
+                empty_func_pattern = (
+                    r"function\s+\w+\s*\([^)]*\)\s*\{\s*(//[^\n]*|/\*[^*]*\*/)\s*\}"
+                )
+                if re.search(empty_func_pattern, content):
+                    issues.append(
+                        f"{file.path}: Contains empty function stub with only comment - "
+                        "functions MUST have full implementation"
+                    )
+
         # Check for vercel.json in node projects
         if manifest.stack == "node":
             has_vercel = any(f.path == "vercel.json" for f in manifest.files)
