@@ -377,10 +377,20 @@ class Consultant:
                     console.print(
                         f"[red][AI-ARCHITECT] API error: {response.status_code} - {response.text[:200]}[/red]"
                     )
+                    # Provide user-friendly error explanation
+                    error_explanations = {
+                        400: "AI model unavailable. The model may not be enabled in your AWS region. Please contact support.",
+                        401: "Authentication failed. AWS credentials may be invalid or expired.",
+                        403: "Access denied. You may not have permission to use this AI model.",
+                    }
+                    friendly_error = error_explanations.get(
+                        response.status_code,
+                        f"API error ({response.status_code}). Please try again.",
+                    )
                     return ConsultantResponse(
                         status="NEEDS_INPUT",
-                        question="I'm having trouble. Please rephrase your request.",
-                        speech=f"API error ({response.status_code}). Please try again.",
+                        question=f"I encountered an issue: {friendly_error} Would you like me to try a different approach?",
+                        speech=friendly_error,
                         confidence=0.0,
                     )
 
