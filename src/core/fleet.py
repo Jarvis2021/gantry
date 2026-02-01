@@ -99,10 +99,18 @@ def _save_design_image(mission_id: str, image_base64: str, image_filename: str) 
 
 
 # In-progress statuses (build is still running)
-IN_PROGRESS_STATUSES = frozenset({
-    "PENDING", "READY_TO_BUILD", "ARCHITECTING", "VALIDATING",
-    "BUILDING", "HEALING", "DEPLOYING", "PUBLISHING",
-})
+IN_PROGRESS_STATUSES = frozenset(
+    {
+        "PENDING",
+        "READY_TO_BUILD",
+        "ARCHITECTING",
+        "VALIDATING",
+        "BUILDING",
+        "HEALING",
+        "DEPLOYING",
+        "PUBLISHING",
+    }
+)
 
 # Human-readable stage labels for status responses
 STATUS_STAGE_LABELS = {
@@ -183,11 +191,25 @@ def _is_status_query(text: str) -> bool:
         return False
     t = text.strip().lower()
     patterns = (
-        "status", "how is", "how's", "how are", "how're",
-        "what is the status", "what's the status", "whats the status",
-        "is it done", "is it ready", "is it complete", "is it finished",
-        "progress", "how long", "when will", "how much longer",
-        "stauts", "statut", "statue ",  # common typos
+        "status",
+        "how is",
+        "how's",
+        "how are",
+        "how're",
+        "what is the status",
+        "what's the status",
+        "whats the status",
+        "is it done",
+        "is it ready",
+        "is it complete",
+        "is it finished",
+        "progress",
+        "how long",
+        "when will",
+        "how much longer",
+        "stauts",
+        "statut",
+        "statue ",  # common typos
     )
     return any(p in t for p in patterns)
 
@@ -271,7 +293,7 @@ def _resolve_status_query(user_input: str) -> dict | None:
 
     # Prefer in-progress build when user asks about status
     in_progress = [m for m in missions if m.status in IN_PROGRESS_STATUSES]
-    mission = (in_progress[0] if in_progress else missions[0])
+    mission = in_progress[0] if in_progress else missions[0]
 
     stage = _format_status_stage(mission.status)
     elapsed = _elapsed_seconds(mission.created_at)
@@ -286,19 +308,16 @@ def _resolve_status_query(user_input: str) -> dict | None:
     if mission.status in IN_PROGRESS_STATUSES:
         elapsed_part = f" In progress for {elapsed} seconds." if elapsed is not None else ""
         speech = (
-            f"The build for \"{project_label}\" is currently {stage}. "
+            f'The build for "{project_label}" is currently {stage}. '
             f"{mission.speech_output or stage}.{elapsed_part} {eta_text}"
         ).strip()
     elif mission.status in ("DEPLOYED", "SUCCESS", "PR_OPENED"):
         speech = (
-            f"The build for \"{project_label}\" is complete. "
+            f'The build for "{project_label}" is complete. '
             f"{mission.speech_output or 'Live and PR opened.'}"
         )
     else:
-        speech = (
-            f"The build for \"{project_label}\" is {stage}. "
-            f"{mission.speech_output or stage}."
-        )
+        speech = f'The build for "{project_label}" is {stage}. {mission.speech_output or stage}.'
 
     return {
         "status": "STATUS_RESPONSE",

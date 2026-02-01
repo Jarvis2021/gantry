@@ -136,9 +136,7 @@ class PolicyGate:
     def _check_file_count(self, manifest: GantryManifest) -> None:
         """Check file count only to prevent abuse (e.g. millions of files)."""
         if len(manifest.files) > self._config.max_files:
-            console.print(
-                "[red][GATEKEEPER] Access Denied: Manifest too large (abuse cap)[/red]"
-            )
+            console.print("[red][GATEKEEPER] Access Denied: Manifest too large (abuse cap)[/red]")
             raise SecurityViolation(
                 f"Access Denied: Too many files ({len(manifest.files)} > {self._config.max_files})",
                 rule="max_files",

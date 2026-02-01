@@ -401,9 +401,7 @@ def clear_missions():
         )
     except Exception as e:
         console.print(f"[red][API] Clear missions error: {e}[/red]")
-        return jsonify(
-            {"error": str(e), "speech": "Failed to clear projects. Try again."}
-        ), 500
+        return jsonify({"error": str(e), "speech": "Failed to clear projects. Try again."}), 500
 
 
 @app.route("/gantry/missions/<mission_id>/retry", methods=["POST"])
@@ -420,17 +418,13 @@ def retry_mission(mission_id: str):
         data = request.json or {}
         deploy = data.get("deploy", True)
         publish = data.get("publish", True)
-        result = get_fleet().retry_failed_mission(
-            mission_id, deploy=deploy, publish=publish
-        )
+        result = get_fleet().retry_failed_mission(mission_id, deploy=deploy, publish=publish)
         if result.get("status") == "error":
             return jsonify(result), 400
         return jsonify(result), 202
     except Exception as e:
         console.print(f"[red][API] Retry mission error: {e}[/red]")
-        return jsonify(
-            {"status": "error", "speech": f"Retry failed: {e}"}
-        ), 500
+        return jsonify({"status": "error", "speech": f"Retry failed: {e}"}), 500
 
 
 @app.route("/gantry/missions/<mission_id>/failure", methods=["GET"])
@@ -459,7 +453,9 @@ def get_mission_failure(mission_id: str):
                     "output": data.get("output", "")[:2000],
                     "verdict": data.get("verdict"),
                 }
-                out["speech"] = f"Last audit failed: exit code {data.get('exit_code')}. See output for details."
+                out["speech"] = (
+                    f"Last audit failed: exit code {data.get('exit_code')}. See output for details."
+                )
             else:
                 out["failure"] = data
                 out["speech"] = "Flight recording available."
